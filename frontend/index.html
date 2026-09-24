@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="OptiGo courier tracking and operations workspace">
+  <title>OptiGo | Courier Operations</title>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <section id="auth-shell" class="auth-shell">
+    <div class="auth-brand-panel">
+      <div class="brand-mark">O</div>
+      <p class="eyebrow">OPTIGO COURIER NETWORK</p>
+      <h1>Every shipment,<br><span>clearly in view.</span></h1>
+      <p class="auth-copy">A focused workspace for booking, tracking and dependable last-mile operations.</p>
+      <div class="auth-proof"><span class="proof-dot"></span><span>Connected to the live data service</span></div>
+    </div>
+    <div class="auth-form-panel">
+      <div class="auth-form-wrap">
+        <div class="mobile-brand"><div class="brand-mark">O</div><span>OptiGo</span></div>
+        <p class="eyebrow" id="auth-eyebrow">WELCOME BACK</p>
+        <h2 id="auth-title">Sign in to your workspace</h2>
+        <p class="muted" id="auth-subtitle">Use your OptiGo account to continue.</p>
+        <form id="login-form" class="stack-form">
+          <label>Email<input name="email" type="email" autocomplete="email" required placeholder="you@example.com"></label>
+          <label>Password<input name="password" type="password" autocomplete="current-password" required minlength="8" placeholder="Enter your password"></label>
+          <button class="button primary wide" type="submit">Sign in <span>→</span></button>
+        </form>
+        <form id="register-form" class="stack-form hidden">
+          <label>Full name<input name="name" required minlength="2" placeholder="Your name"></label>
+          <label>Email<input name="email" type="email" required placeholder="you@example.com"></label>
+          <label>Phone<input name="phone" required minlength="7" placeholder="Contact number"></label>
+          <label>Password<input name="password" type="password" required minlength="8" placeholder="At least 8 characters"></label>
+          <button class="button primary wide" type="submit">Create customer account <span>→</span></button>
+        </form>
+        <p class="auth-switch" id="auth-switch">New to OptiGo? <button type="button" data-auth-mode="register">Create an account</button></p>
+      </div>
+    </div>
+  </section>
+
+  <section id="app-shell" class="app-shell hidden">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-brand"><div class="brand-mark">O</div><div><strong>OptiGo</strong><small>Courier network</small></div></div>
+      <div class="nav-label">Workspace</div>
+      <nav class="nav-list" id="nav-list">
+        <button class="nav-item active" data-view="dashboard"><span class="nav-icon">⌂</span>Overview</button>
+        <button class="nav-item" data-view="shipments"><span class="nav-icon">▤</span>Shipments</button>
+        <button class="nav-item customer-only" data-view="booking"><span class="nav-icon">＋</span>New booking</button>
+        <button class="nav-item customer-only" data-view="payments"><span class="nav-icon">₹</span>Payments</button>
+        <button class="nav-item" data-view="tracking"><span class="nav-icon">⌖</span>Track shipment</button>
+        <button class="nav-item customer-only" data-view="notifications"><span class="nav-icon">◌</span>Notifications</button>
+        <button class="nav-item complaints-nav" data-view="complaints"><span class="nav-icon">?</span>Support & complaints</button>
+        <div class="staff-nav hidden" id="staff-nav">
+          <div class="nav-label">Operations</div>
+          <button class="nav-item" data-view="tasks"><span class="nav-icon">✓</span>My tasks</button>
+          <button class="nav-item manager-only" data-view="operations"><span class="nav-icon">⇄</span>Assignments</button>
+          <button class="nav-item manager-only" data-view="route-planner"><span class="nav-icon">⌁</span>Route planner</button>
+          <button class="nav-item" data-view="reports"><span class="nav-icon">▥</span>Reports</button>
+          <button class="nav-item warehouse-only" data-view="warehouse"><span class="nav-icon">▦</span>Warehouse</button>
+          <button class="nav-item finance-only" data-view="finance"><span class="nav-icon">₹</span>Finance</button>
+        </div>
+      </nav>
+      <div class="sidebar-footer"><span class="status-dot"></span><span>Live service connected</span></div>
+    </aside>
+    <div class="page-wrap">
+      <header class="topbar"><button class="menu-button" id="menu-button" aria-label="Open menu">☰</button><div><p class="eyebrow" id="page-kicker">OPTIGO WORKSPACE</p><h1 id="page-title">Overview</h1></div><div class="topbar-actions"><div class="account-chip"><span class="avatar" id="avatar">O</span><span><strong id="account-name">Account</strong><small id="account-role">Customer</small></span></div><button class="icon-button" id="logout-button" title="Sign out">↪</button></div></header>
+      <main id="view" class="content"></main>
+    </div>
+    <div id="sidebar-overlay" class="sidebar-overlay"></div>
+  </section>
+  <script src="js/app.js"></script>
+</body>
+</html>

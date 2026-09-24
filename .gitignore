@@ -1,0 +1,6 @@
+backend/.env
+backend/__pycache__/
+backend/**/*.py[cod]
+backend/.pytest_cache/
+frontend/.DS_Store
+*.zip
