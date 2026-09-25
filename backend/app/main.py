@@ -4,7 +4,10 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 import hashlib
 import hmac
+import json
 import os
+from urllib.parse import quote
+from urllib.request import Request as UrlRequest, urlopen
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -36,6 +39,32 @@ class AuthIn(BaseModel):
 class RegisterIn(AuthIn):
     name: str = Field(min_length=2, max_length=120)
     phone: str = Field(min_length=7, max_length=30)
+
+
+def external_json(url: str, payload: dict | None = None):
+    body = json.dumps(payload).encode() if payload is not None else None
+    request = UrlRequest(url, data=body, headers={"Content-Type": "application/json", "User-Agent": "OptiGo/1.0 address lookup"}, method="POST" if body else "GET")
+    with urlopen(request, timeout=8) as response:
+        return json.loads(response.read().decode())
+
+
+@app.get("/api/locations/cities")
+def location_cities(state: str = Query(min_length=2, max_length=100)):
+    try:
+        result = external_json("https://countriesnow.space/api/v0.1/countries/state/cities", {"country": "India", "state": state})
+        return {"cities": sorted(set(result.get("data") or []))}
+    except Exception:
+        return {"cities": []}
+
+
+@app.get("/api/locations/search")
+def location_search(q: str = Query(min_length=3, max_length=240)):
+    try:
+        result = external_json("https://photon.komoot.io/api/?q=" + quote(q) + "&limit=6")
+        features = [feature for feature in result.get("features", []) if feature.get("properties", {}).get("country") == "India"]
+        return {"features": features}
+    except Exception:
+        return {"features": []}
 
 
 class AddressIn(BaseModel):
