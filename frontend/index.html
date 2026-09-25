@@ -68,6 +68,16 @@
     </div>
     <div id="sidebar-overlay" class="sidebar-overlay"></div>
   </section>
+  <div id="logout-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="logout-modal-title">
+    <div class="modal-card">
+      <h2 id="logout-modal-title">Sign out?</h2>
+      <p>Your current OptiGo session will be ended on this device.</p>
+      <div class="modal-actions">
+        <button type="button" class="button secondary" id="cancel-logout">Cancel</button>
+        <button type="button" class="button primary" id="confirm-logout">Sign out</button>
+      </div>
+    </div>
+  </div>
   <script>
     // GitHub Pages uses the hosted FastAPI service; local development can override this value.
     window.OPTIGO_API_BASE = "https://optigo-api.onrender.com";
