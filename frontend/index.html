@@ -13,9 +13,7 @@
   <section id="auth-shell" class="auth-shell">
     <div class="auth-brand-panel">
       <img class="brand-logo auth-logo" src="assets/OptiGo_Logo.svg" alt="OptiGo logo">
-      <p class="eyebrow">OPTIGO COURIER NETWORK</p>
       <h1>Every shipment,<br><span>clearly in view.</span></h1>
-      <div class="auth-proof"><span class="proof-dot"></span><span>Connected to the live data service</span></div>
     </div>
     <div class="auth-form-panel">
       <div class="auth-form-wrap">
@@ -23,6 +21,7 @@
         <p class="eyebrow" id="auth-eyebrow">WELCOME BACK</p>
         <h2 id="auth-title">Sign in to your workspace</h2>
         <p class="muted" id="auth-subtitle">Use your OptiGo account to continue.</p>
+        <div id="auth-error" class="auth-error" role="alert" aria-live="assertive"></div>
         <form id="login-form" class="stack-form">
           <label>Email<input name="email" type="email" autocomplete="email" required placeholder="you@example.com"></label>
           <label>Password<input name="password" type="password" autocomplete="current-password" required minlength="8" placeholder="Enter your password"></label>
@@ -62,7 +61,6 @@
           <button class="nav-item finance-only" data-view="finance"><span class="nav-icon">₹</span>Finance</button>
         </div>
       </nav>
-      <div class="sidebar-footer"><span class="status-dot"></span><span>Live service connected</span></div>
     </aside>
     <div class="page-wrap">
       <header class="topbar"><button class="menu-button" id="menu-button" aria-label="Open menu">☰</button><div><p class="eyebrow" id="page-kicker">OPTIGO WORKSPACE</p><h1 id="page-title">Overview</h1></div><div class="topbar-actions"><div class="account-chip"><span class="avatar" id="avatar">O</span><span><strong id="account-name">Account</strong><small id="account-role">Customer</small></span></div><button class="icon-button" id="logout-button" title="Sign out">↪</button></div></header>
