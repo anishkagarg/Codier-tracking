@@ -229,8 +229,9 @@ def register(payload: RegisterIn, request: Request, db: Session = Depends(get_db
     customer = Customer(customer_id=__import__("app.services", fromlist=["new_id"]).new_id(db, Customer, "customer_id", "OBUCUS"), customer_type="INDIVIDUAL", name=user.name, customer_no=__import__("app.services", fromlist=["new_id"]).new_id(db, Customer, "customer_no", "OBUCUS"), user_id=user.user_id)
     db.add(customer)
     db.commit()
-    request.session["user_id"] = user.user_id
-    return {"account": account_view(db, user)}
+    # Registration creates the customer account but does not authenticate it.
+    # The user must explicitly sign in after receiving the success message.
+    return {"account_created": True, "account": account_view(db, user)}
 
 
 @app.post("/api/auth/login")
