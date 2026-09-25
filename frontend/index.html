@@ -61,9 +61,13 @@
           <button class="nav-item finance-only" data-view="finance"><span class="nav-icon">₹</span>Finance</button>
         </div>
       </nav>
+      <div class="sidebar-account-actions">
+        <button class="button ghost wide" id="logout-button">Sign out</button>
+        <button class="button danger wide" id="delete-account-button">Delete account</button>
+      </div>
     </aside>
     <div class="page-wrap">
-      <header class="topbar"><button class="menu-button" id="menu-button" aria-label="Open menu">☰</button><div><h1 id="page-title">Overview</h1></div><div class="topbar-actions"><div class="account-chip"><span class="avatar" id="avatar">O</span><span><strong id="account-name">Account</strong><small id="account-role">Customer</small></span></div><button class="button ghost small" id="logout-button">Sign out</button><button class="button danger small" id="delete-account-button">Delete account</button></div></header>
+      <header class="topbar"><button class="menu-button" id="menu-button" aria-label="Open menu">☰</button><div><h1 id="page-title">Overview</h1></div><div class="topbar-actions"><div class="account-chip"><span class="avatar" id="avatar">O</span><span><strong id="account-name">Account</strong><small id="account-role">Customer</small></span></div></div></header>
       <main id="view" class="content"></main>
     </div>
     <div id="sidebar-overlay" class="sidebar-overlay"></div>
