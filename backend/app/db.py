@@ -25,6 +25,10 @@ def make_engine(url: str | None = None):
     kwargs = {"future": True, "pool_pre_ping": True}
     if url.startswith("sqlite"):
         kwargs["connect_args"] = {"check_same_thread": False}
+    else:
+        # Neon pooled connections may start with an empty search_path.
+        # Keep unqualified ORM table names mapped to the application schema.
+        kwargs["connect_args"] = {"options": "-csearch_path=public"}
     return create_engine(url, **kwargs)
 
 
