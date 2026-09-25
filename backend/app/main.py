@@ -21,7 +21,10 @@ from .services import add_location_and_history, assign_task, create_booking, del
 
 app = FastAPI(title="OptiGo Courier Tracking API", version="1.0.0", description="OptiGo backend connected to the configured PostgreSQL database.")
 origins = [x.strip() for x in os.getenv("FRONTEND_ORIGINS", "http://127.0.0.1:5173,http://localhost:5173").split(",") if x.strip()]
-app.add_middleware(SessionMiddleware, secret_key=os.getenv("SESSION_SECRET", "change-this-session-secret"), same_site="lax", https_only=os.getenv("COOKIE_SECURE", "false").lower() == "true")
+cookie_secure = os.getenv("COOKIE_SECURE", "false").lower() == "true"
+# GitHub Pages and Render are different sites, so the authenticated session
+# cookie must be allowed on cross-site API requests in production.
+app.add_middleware(SessionMiddleware, secret_key=os.getenv("SESSION_SECRET", "change-this-session-secret"), same_site="none" if cookie_secure else "lax", https_only=cookie_secure)
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 
