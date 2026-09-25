@@ -41,7 +41,7 @@
 
   <section id="app-shell" class="app-shell hidden">
     <aside class="sidebar" id="sidebar">
-      <div class="sidebar-brand"><img class="brand-logo sidebar-logo" src="assets/OptiGo_Logo.svg" alt="OptiGo logo"><div><strong>OptiGo</strong></div></div>
+      <div class="sidebar-brand"><img class="brand-logo sidebar-logo" src="assets/OptiGo_Logo.svg" alt="OptiGo logo"></div>
       <div class="nav-label">Workspace</div>
       <nav class="nav-list" id="nav-list">
         <button class="nav-item active" data-view="dashboard"><span class="nav-icon">⌂</span>Overview</button>
@@ -63,7 +63,7 @@
       </nav>
     </aside>
     <div class="page-wrap">
-      <header class="topbar"><button class="menu-button" id="menu-button" aria-label="Open menu">☰</button><div><h1 id="page-title">Overview</h1></div><div class="topbar-actions"><div class="account-chip"><span class="avatar" id="avatar">O</span><span><strong id="account-name">Account</strong><small id="account-role">Customer</small></span></div><button class="icon-button" id="logout-button" title="Sign out">↪</button></div></header>
+      <header class="topbar"><button class="menu-button" id="menu-button" aria-label="Open menu">☰</button><div><h1 id="page-title">Overview</h1></div><div class="topbar-actions"><div class="account-chip"><span class="avatar" id="avatar">O</span><span><strong id="account-name">Account</strong><small id="account-role">Customer</small></span></div><button class="button ghost small" id="logout-button">Sign out</button><button class="button danger small" id="delete-account-button">Delete account</button></div></header>
       <main id="view" class="content"></main>
     </div>
     <div id="sidebar-overlay" class="sidebar-overlay"></div>
@@ -75,6 +75,16 @@
       <div class="modal-actions">
         <button type="button" class="button secondary" id="cancel-logout">Cancel</button>
         <button type="button" class="button primary" id="confirm-logout">Sign out</button>
+      </div>
+    </div>
+  </div>
+  <div id="delete-account-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="delete-account-modal-title">
+    <div class="modal-card">
+      <h2 id="delete-account-modal-title">Delete account?</h2>
+      <p>Your sign-in access will be permanently disabled. Shipment history will be retained without your active account.</p>
+      <div class="modal-actions">
+        <button type="button" class="button secondary" id="cancel-delete-account">Cancel</button>
+        <button type="button" class="button danger" id="confirm-delete-account">Delete account</button>
       </div>
     </div>
   </div>

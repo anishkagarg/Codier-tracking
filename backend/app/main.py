@@ -253,6 +253,27 @@ def logout(request: Request):
     return {"logged_out": True}
 
 
+@app.delete("/api/auth/account")
+def delete_account(request: Request, db: Session = Depends(get_db)):
+    user = required_user(request, db)
+    customer = db.scalar(select(Customer).where(Customer.user_id == user.user_id))
+    staff = db.scalar(select(Staff).where(Staff.user_id == user.user_id))
+    # Retain shipment history for operational integrity while disabling access
+    # and removing the account's identifying login details.
+    user.active = False
+    user.email = f"deleted+{user.user_id}@invalid.optigo"
+    user.name = "Deleted account"
+    user.phone = ""
+    user.password_hash = hash_password(f"deleted-{user.user_id}-{datetime.now(timezone.utc).isoformat()}")
+    if customer:
+        customer.name = "Deleted account"
+    if staff:
+        staff.active = False
+    db.commit()
+    request.session.clear()
+    return {"account_deleted": True}
+
+
 @app.get("/api/notifications")
 def notifications(request: Request, db: Session = Depends(get_db)):
     user = required_user(request, db)
