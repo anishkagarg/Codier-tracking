@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: optigo-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health/live
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: FRONTEND_ORIGINS
+        value: https://anishkagarg.github.io
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: SHOW_OTP_IN_RESPONSE
+        value: "false"
+      - key: RAZORPAY_MODE
+        value: test
+      - key: EMAIL_TRANSPORT
+        value: in_app
+      - key: SMS_TRANSPORT
+        value: disabled

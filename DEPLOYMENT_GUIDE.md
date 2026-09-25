@@ -31,6 +31,12 @@ py -3 -m http.server 5173
 
 Open `http://127.0.0.1:5173`.
 
+## Free hosted deployment
+
+The repository includes `render.yaml` for a free Render FastAPI web service. Create a free Neon PostgreSQL project, restore the supplied PostgreSQL schema/data into it, then create the Render service from the `anishkagarg/Codier-tracking` repository. Set `DATABASE_URL` to the Neon connection string; the other deployment variables are defined in `render.yaml`. After Render provides the API URL, set `window.OPTIGO_API_BASE` in `frontend/index.html` to that HTTPS API URL and push the change. GitHub Pages will then use the hosted backend instead of `127.0.0.1`.
+
+Free hosting has limitations: Render free services sleep after inactivity and Neon free projects have quotas. This is suitable for a student demonstration, not production-critical workloads.
+
 ## Deployment verification
 
 Run from `backend`:
