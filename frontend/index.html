@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="OptiGo courier tracking and operations workspace">
   <title>OptiGo | Courier Operations</title>
-  <link rel="stylesheet" href="css/app.css?v=f2ade29">
+  <link rel="stylesheet" href="css/app.css?v=f2ade30">
 </head>
 <body>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
@@ -25,7 +25,7 @@
         <form id="login-form" class="stack-form">
           <label>Email<input name="email" type="email" autocomplete="email" required placeholder="you@example.com"></label>
           <label>Password<input name="password" type="password" autocomplete="current-password" required minlength="8" placeholder="Enter your password"></label>
-          <button class="button primary wide" type="submit">Sign in <span>→</span></button>
+          <button class="button primary wide" type="submit" disabled>Sign in <span>→</span></button>
         </form>
         <form id="register-form" class="stack-form hidden">
           <label>Full name<input name="name" required minlength="2" placeholder="Your name"></label>
@@ -34,7 +34,7 @@
           <label>Password<input name="password" type="password" required minlength="8" placeholder="At least 8 characters"></label>
           <button class="button primary wide" type="submit">Create customer account <span>→</span></button>
         </form>
-        <p class="auth-switch" id="auth-switch">New to OptiGo? <button type="button" data-auth-mode="register">Create an account</button></p>
+        <p class="auth-switch" id="auth-switch">New to OptiGo? <button type="button" data-auth-mode="register" disabled>Create an account</button></p>
       </div>
     </div>
   </section>
@@ -96,8 +96,8 @@
     // GitHub Pages uses the hosted FastAPI service; local development can override this value.
     window.OPTIGO_API_BASE = "https://optigo-api.onrender.com";
   </script>
-  <script src="js/india-locations.js?v=f2ade29"></script>
-  <script src="js/booking-fields.js?v=f2ade29"></script>
-  <script src="js/app.js?v=f2ade29"></script>
+  <script src="js/india-locations.js?v=f2ade30"></script>
+  <script src="js/booking-fields.js?v=f2ade30"></script>
+  <script src="js/app.js?v=f2ade30"></script>
 </body>
 </html>

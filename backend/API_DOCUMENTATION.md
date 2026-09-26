@@ -20,6 +20,8 @@ All JSON endpoints use a signed session cookie. Login first, then send the cooki
 | GET | `/api/locations/cities` | Public | List cities for an Indian state |
 | GET | `/api/locations/post-offices` | Public | Find post-office areas and PINs for a city/state |
 | POST | `/api/pricing/quote` | Authenticated | Quote the current shipping charge before booking |
+| GET | `/api/payments/options` | Authenticated | Whether Razorpay test checkout is configured |
+| GET | `/api/finance/invoices` | Accounts/manager/admin | Recent invoices with payment and cash-due status |
 | GET | `/api/shipments` | Authenticated | Customer-owned or staff operational search |
 | POST | `/api/shipments` | Customer | Create shipment, addresses, initial history and invoice; requires `Idempotency-Key` header |
 | GET | `/api/shipments/{shipment_id}` | Owner/staff | Private shipment detail |
@@ -65,6 +67,10 @@ All JSON endpoints use a signed session cookie. Login first, then send the cooki
 ```
 
 The `Idempotency-Key` header must remain the same for retries of one booking attempt. Reusing it returns HTTP 409 with the original tracking ID instead of creating another shipment. The response includes a database-generated OBU tracking ID, charge, invoice total, current status `BOOKED`, and the initial status history event. `payment_mode` is `CASH` (cash on delivery; the amount due is derived from the shipping charge) or `RAZORPAY` (online checkout). The customer-facing form does not submit a COD amount or parcel type.
+
+New bookings create a pickup assignment. Completing pickup creates a warehouse assignment; recording its `RECEIVED` scan moves the shipment to `IN_TRANSIT` and creates a delivery assignment. The delivery agent starts delivery, requests an OTP (stored in PostgreSQL and shown in the customer's Notifications), and verifies it at handover. Cash bookings require explicit cash-collection confirmation before delivery; the payment and invoice are then updated together. Existing unassigned bookings are not silently backfilled.
+
+Razorpay test mode requires configured test keys. Without them, online checkout is disabled; a local simulation cannot mark an invoice paid.
 
 `POST /api/pricing/quote` accepts `weight_kg`, `delivery_type_code`, and `destination_zone` and returns the amount/currency from the same active rate calculation used by booking.
 

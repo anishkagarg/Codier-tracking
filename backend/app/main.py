@@ -23,7 +23,7 @@ from typing import Literal
 from .db import engine, get_db
 from .models import Address, AssignmentStatus, BookingIdempotency, Complaint, Customer, DeliveryType, Hub, Invoice, LocationUpdate, Notification, Payment, PricingRule, Refund, Route, Shipment, ShipmentAssignment, ShipmentStatusHistory, Staff, StaffRole, User, Vehicle, WarehouseScan
 from .security import hash_password, verify_password
-from .services import add_location_and_history, assign_task, create_booking, delivery_assessment, haversine_km, latest_gps_location, new_id, optimize_route, price_for_weight, public_tracking, request_delivery_otp, transition_assignment, verify_delivery
+from .services import add_location_and_history, assign_task, auto_assign_task, create_booking, delivery_assessment, haversine_km, latest_gps_location, new_id, optimize_route, price_for_weight, public_tracking, request_delivery_otp, transition_assignment, verify_delivery
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -31,6 +31,9 @@ async def lifespan(_app: FastAPI):
     BookingIdempotency.__table__.create(bind=engine, checkfirst=True)
     with engine.begin() as connection:
         connection.execute(text("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS preferred_payment_mode VARCHAR(20)"))
+        connection.execute(text("ALTER TABLE notifications ALTER COLUMN read_at DROP NOT NULL"))
+        connection.execute(text("ALTER TABLE delivery_otps ALTER COLUMN verified_at DROP NOT NULL"))
+        connection.execute(text("ALTER TABLE delivery_otps ALTER COLUMN consumed_at DROP NOT NULL"))
     yield
 
 
@@ -185,6 +188,7 @@ class RazorpayVerifyIn(BaseModel):
 class DeliveryIn(BaseModel):
     code: str = Field(min_length=6, max_length=6)
     remarks: str = Field(default="OTP verified", max_length=500)
+    cash_collected: bool = False
 
 
 class FailureIn(BaseModel):
@@ -240,6 +244,9 @@ def address_view(db: Session, address_id: str) -> dict:
 
 def shipment_view(db: Session, shipment: Shipment, include_private: bool = True) -> dict:
     data = {"shipment_id": shipment.shipment_id, "tracking_id": shipment.tracking_id, "customer_id": shipment.customer_id, "status": shipment.current_status, "delivery_type_code": shipment.delivery_type_code, "delivery_mode": shipment.delivery_mode, "parcel_type": shipment.parcel_type, "weight_kg": str(shipment.weight_kg), "dimensions_cm": {"length": str(shipment.length_cm), "width": str(shipment.width_cm), "height": str(shipment.height_cm)}, "charge": str(shipment.charge), "currency": shipment.currency.strip(), "payment_amount": str(shipment.payment_amount), "cod_amount_due": str(shipment.cod_amount_due), "fragile": shipment.fragile, "priority": shipment.priority, "booking_date": shipment.booking_date.isoformat(), "expected_delivery": shipment.expected_delivery.isoformat()}
+    invoice = db.scalar(select(Invoice).where(Invoice.shipment_id == shipment.shipment_id))
+    data["payment_mode"] = invoice.preferred_payment_mode if invoice else None
+    data["payment_status"] = invoice.payment_status_code if invoice else None
     if include_private:
         data["sender"] = address_view(db, shipment.sender_address_id)
         data["receiver"] = address_view(db, shipment.receiver_address_id)
@@ -503,6 +510,7 @@ def book_shipment(payload: BookingIn, request: Request, db: Session = Depends(ge
     try:
         shipment = create_booking(db, customer, user, payload.sender.model_dump(), payload.receiver.model_dump(), payload.model_dump())
         db.add(BookingIdempotency(idempotency_key=idempotency_key, user_id=user.user_id, shipment_id=shipment.shipment_id, created_at=datetime.now(timezone.utc)))
+        auto_assign_task(db, shipment, "PICKUP")
         db.commit()
         db.refresh(shipment)
         return shipment_view(db, shipment)
@@ -578,6 +586,12 @@ def route_optimize(payload: RouteOptimizeIn, request: Request, db: Session = Dep
     return optimize_route({"latitude": payload.start_latitude, "longitude": payload.start_longitude}, stops)
 
 
+@app.get("/api/payments/options")
+def payment_options(request: Request, db: Session = Depends(get_db)):
+    required_user(request, db)
+    return {"cash_available": True, "razorpay_available": bool(os.getenv("RAZORPAY_KEY_ID", "").strip() and os.getenv("RAZORPAY_KEY_SECRET", "").strip()), "razorpay_mode": os.getenv("RAZORPAY_MODE", "test")}
+
+
 @app.post("/api/payments/razorpay/order")
 def razorpay_order(payload: RazorpayOrderIn, request: Request, db: Session = Depends(get_db)):
     user = required_user(request, db)
@@ -589,10 +603,12 @@ def razorpay_order(payload: RazorpayOrderIn, request: Request, db: Session = Dep
     invoice = db.scalar(select(Invoice).where(Invoice.shipment_id == shipment.shipment_id).order_by(Invoice.issued_at.desc()))
     if not invoice:
         raise HTTPException(404, "Invoice not found")
+    if invoice.preferred_payment_mode != "RAZORPAY" or invoice.payment_status_code == "PAID":
+        raise HTTPException(409, "This invoice is not awaiting an online payment")
     amount_paise = int(Decimal(str(invoice.total)) * 100)
     key_id, key_secret = os.getenv("RAZORPAY_KEY_ID", "").strip(), os.getenv("RAZORPAY_KEY_SECRET", "").strip()
     if not key_id or not key_secret:
-        return {"provider": "local-test-fallback", "mode": "test", "order_id": f"local_order_{invoice.invoice_no}", "amount": amount_paise, "currency": invoice.currency.strip(), "shipment_id": shipment.shipment_id, "message": "Razorpay test keys are not configured; this no-cost local simulation is available."}
+        raise HTTPException(503, "Razorpay test checkout is unavailable until test keys are configured. Choose cash for now.")
     import httpx
     try:
         response = httpx.post("https://api.razorpay.com/v1/orders", auth=(key_id, key_secret), json={"amount": amount_paise, "currency": invoice.currency.strip(), "receipt": invoice.invoice_no, "notes": {"shipment_id": shipment.shipment_id}}, timeout=15)
@@ -614,19 +630,18 @@ def razorpay_verify(payload: RazorpayVerifyIn, request: Request, db: Session = D
     invoice = db.scalar(select(Invoice).where(Invoice.shipment_id == shipment.shipment_id).order_by(Invoice.issued_at.desc()))
     if not invoice:
         raise HTTPException(404, "Invoice not found")
+    if invoice.preferred_payment_mode != "RAZORPAY" or invoice.payment_status_code == "PAID":
+        raise HTTPException(409, "This invoice is not awaiting an online payment")
     key_secret = os.getenv("RAZORPAY_KEY_SECRET", "").strip()
-    if payload.order_id.startswith("local_order_") and not key_secret:
-        verified = True
-    else:
-        if not key_secret:
-            raise HTTPException(503, "Razorpay test secret is not configured")
-        expected = hmac.new(key_secret.encode(), f"{payload.order_id}|{payload.payment_id}".encode(), hashlib.sha256).hexdigest()
-        verified = hmac.compare_digest(expected, payload.signature)
+    if not key_secret or payload.order_id.startswith("local_order_"):
+        raise HTTPException(503, "A signed Razorpay test payment is required")
+    expected = hmac.new(key_secret.encode(), f"{payload.order_id}|{payload.payment_id}".encode(), hashlib.sha256).hexdigest()
+    verified = hmac.compare_digest(expected, payload.signature)
     if not verified:
         raise HTTPException(400, "Razorpay payment signature is invalid")
     invoice.payment_status_code = "PAID"
     db.commit()
-    return {"verified": True, "provider": "razorpay" if key_secret else "local-test-fallback", "invoice_no": invoice.invoice_no, "payment_status": invoice.payment_status_code}
+    return {"verified": True, "provider": "razorpay", "invoice_no": invoice.invoice_no, "payment_status": invoice.payment_status_code}
 
 
 @app.get("/api/reports/delays")
@@ -645,7 +660,7 @@ def tasks(request: Request, db: Session = Depends(get_db)):
     result = []
     for a in db.scalars(stmt).all():
         s = db.get(Shipment, a.shipment_id)
-        result.append({"assignment_id": a.assignment_id, "shipment_id": a.shipment_id, "tracking_id": s.tracking_id if s else None, "task_type_code": a.task_type_code, "status_code": a.status_code, "shipment_status": s.current_status if s else None, "staff_id": a.staff_id, "assigned_at": a.assigned_at.isoformat(), "scheduled_reference_at": a.completed_at.isoformat(), "failure_reason": a.failure_reason})
+        result.append({"assignment_id": a.assignment_id, "shipment_id": a.shipment_id, "tracking_id": s.tracking_id if s else None, "task_type_code": a.task_type_code, "status_code": a.status_code, "shipment_status": s.current_status if s else None, "staff_id": a.staff_id, "assigned_at": a.assigned_at.isoformat(), "scheduled_reference_at": a.completed_at.isoformat(), "failure_reason": a.failure_reason if a.status_code == "FAILED" else None, "sender": address_view(db, s.sender_address_id) if s else {}, "receiver": address_view(db, s.receiver_address_id) if s else {}, "cash_due": str(s.cod_amount_due) if s else "0"})
     return {"account": account_view(db, user), "tasks": result}
 
 
@@ -655,6 +670,9 @@ def create_assignment(payload: AssignmentIn, request: Request, db: Session = Dep
     shipment, assignee = db.get(Shipment, payload.shipment_id), db.get(Staff, payload.staff_id)
     if not shipment or not assignee or not assignee.active:
         raise HTTPException(404, "Shipment or active staff member not found")
+    required_status = {"PICKUP": {"BOOKED", "CONFIRMED"}, "WAREHOUSE": {"PICKED_UP"}, "DELIVERY": {"IN_TRANSIT"}}
+    if shipment.current_status not in required_status.get(payload.task_type_code, set()):
+        raise HTTPException(409, f"A {payload.task_type_code.lower()} task cannot be assigned while this shipment is {shipment.current_status.lower()}")
     try:
         assignment = assign_task(db, shipment, assignee, manager, payload.task_type_code)
         return {"assignment_id": assignment.assignment_id, "status_code": assignment.status_code, "tracking_id": shipment.tracking_id}
@@ -677,9 +695,12 @@ def pickup_complete(assignment_id: str, request: Request, db: Session = Depends(
     if assignment.task_type_code != "PICKUP":
         raise HTTPException(400, "This is not a pickup assignment")
     try:
-        transition_assignment(db, assignment, actor, True)
+        transition_assignment(db, assignment, actor, True, commit=False)
+        auto_assign_task(db, db.get(Shipment, assignment.shipment_id), "WAREHOUSE")
+        db.commit()
         return {"assignment_id": assignment_id, "status_code": "COMPLETED"}
-    except (ValueError, PermissionError) as exc:
+    except (ValueError, PermissionError, IntegrityError) as exc:
+        db.rollback()
         raise HTTPException(403 if isinstance(exc, PermissionError) else 409, str(exc))
 
 
@@ -720,11 +741,8 @@ def start_delivery(assignment_id: str, request: Request, db: Session = Depends(g
 def create_otp(assignment_id: str, request: Request, db: Session = Depends(get_db)):
     actor = required_user(request, db)
     try:
-        code = request_delivery_otp(db, assignment_for(db, assignment_id), actor)
-        response = {"assignment_id": assignment_id, "expires_in_seconds": 600, "delivery_otp_requested": True}
-        if os.getenv("SHOW_OTP_IN_RESPONSE", "false").lower() == "true":
-            response["development_only_code"] = code
-        return response
+        request_delivery_otp(db, assignment_for(db, assignment_id), actor)
+        return {"assignment_id": assignment_id, "expires_in_seconds": 600, "delivery_otp_requested": True, "delivery_channel": "customer_notifications"}
     except (ValueError, PermissionError) as exc:
         raise HTTPException(403 if isinstance(exc, PermissionError) else 409, str(exc))
 
@@ -733,7 +751,7 @@ def create_otp(assignment_id: str, request: Request, db: Session = Depends(get_d
 def deliver(assignment_id: str, payload: DeliveryIn, request: Request, db: Session = Depends(get_db)):
     actor = required_user(request, db)
     try:
-        proof = verify_delivery(db, assignment_for(db, assignment_id), actor, payload.code, payload.remarks)
+        proof = verify_delivery(db, assignment_for(db, assignment_id), actor, payload.code, payload.remarks, payload.cash_collected)
         return {"proof_id": proof.proof_id, "assignment_id": assignment_id, "status": "DELIVERED"}
     except (ValueError, PermissionError) as exc:
         raise HTTPException(403 if isinstance(exc, PermissionError) else 409, str(exc))
@@ -769,7 +787,12 @@ def add_location(shipment_id: str, payload: LocationIn, request: Request, db: Se
     from .services import new_id
     location_text = payload.location_text.strip()
     scan_type = payload.scan_type.upper()
-    if payload.latitude is not None and payload.longitude is not None:
+    if scan_type == "GPS" or payload.latitude is not None or payload.longitude is not None:
+        if payload.latitude is None or payload.longitude is None:
+            raise HTTPException(400, "Both GPS coordinates are required")
+        delivery_assignment = db.scalar(select(ShipmentAssignment).where(ShipmentAssignment.shipment_id == shipment_id, ShipmentAssignment.task_type_code == "DELIVERY"))
+        if not delivery_assignment or delivery_assignment.staff_id != staff.staff_id or delivery_assignment.status_code != "IN_PROGRESS" or shipment.current_status != "OUT_FOR_DELIVERY":
+            raise HTTPException(403, "Only the active assigned delivery agent can share GPS for this shipment")
         location_text = f"GPS: {payload.latitude:.6f}, {payload.longitude:.6f}"
         scan_type = "GPS"
     location = LocationUpdate(location_id=new_id(db, LocationUpdate, "location_id", "OBULOC"), shipment_id=shipment_id, recorded_at=now, location_text=location_text, scan_type=scan_type, recorded_by=actor.user_id)
@@ -809,17 +832,42 @@ def create_warehouse_scan(payload: WarehouseScanIn, request: Request, db: Sessio
     hub = db.get(Hub, payload.hub_id)
     if hub is None or not hub.active:
         raise HTTPException(status_code=404, detail="Active hub not found")
+    if shipment.current_status != "PICKED_UP":
+        raise HTTPException(status_code=409, detail="A warehouse receipt requires a picked-up shipment")
+    assignment = db.scalar(select(ShipmentAssignment).where(ShipmentAssignment.shipment_id == shipment.shipment_id, ShipmentAssignment.task_type_code == "WAREHOUSE"))
+    if not assignment or assignment.status_code == "COMPLETED":
+        raise HTTPException(status_code=409, detail="An active warehouse assignment is required")
+    if staff.staff_id != assignment.staff_id and staff.role_code not in {"ADMINISTRATOR", "OPERATIONS_MANAGER"}:
+        raise HTTPException(status_code=403, detail="This shipment is assigned to another warehouse officer")
+    if payload.scan_type.strip().upper() != "RECEIVED":
+        raise HTTPException(status_code=400, detail="Record a RECEIVED scan to hand off the parcel")
     from .services import new_id
     row = WarehouseScan(scan_id=new_id(db, WarehouseScan, "scan_id", "OBUSCN", width=6), shipment_id=shipment.shipment_id, scan_type=payload.scan_type.strip().upper(), scanned_at=datetime.now(timezone.utc), hub_id=hub.hub_id, scanned_by=staff.staff_id)
-    db.add(row)
-    db.commit()
+    try:
+        db.add(row)
+        add_location_and_history(db, shipment, user, "IN_TRANSIT", hub.name, "Received and dispatched from warehouse")
+        assignment.status_code = "COMPLETED"
+        assignment.completed_at = row.scanned_at
+        assignment.failure_reason = "Completed successfully"
+        auto_assign_task(db, shipment, "DELIVERY")
+        db.commit()
+    except (ValueError, IntegrityError) as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc))
     return {"scan_id": row.scan_id, "shipment_id": row.shipment_id, "hub_id": row.hub_id, "scan_type": row.scan_type, "scanned_at": row.scanned_at.isoformat()}
 
 
 @app.get("/api/finance/summary")
 def finance_summary(request: Request, db: Session = Depends(get_db)):
     required_staff(request, db, {"ADMINISTRATOR", "OPERATIONS_MANAGER", "ACCOUNTS_OFFICER"})
-    return {"invoices": db.scalar(select(func.count(Invoice.invoice_no))) or 0, "invoice_total": str(db.scalar(select(func.coalesce(func.sum(Invoice.total), 0))) or 0), "payments": db.scalar(select(func.count(Payment.payment_id))) or 0, "payments_total": str(db.scalar(select(func.coalesce(func.sum(Payment.amount), 0))) or 0), "refunds": db.scalar(select(func.count(Refund.refund_id))) or 0}
+    return {"invoices": db.scalar(select(func.count(Invoice.invoice_no))) or 0, "invoice_total": str(db.scalar(select(func.coalesce(func.sum(Invoice.total), 0))) or 0), "payments": db.scalar(select(func.count(Invoice.invoice_no)).where(Invoice.payment_status_code == "PAID")) or 0, "payments_total": str(db.scalar(select(func.coalesce(func.sum(Invoice.total), 0)).where(Invoice.payment_status_code == "PAID")) or 0), "refunds": db.scalar(select(func.count(Refund.refund_id))) or 0}
+
+
+@app.get("/api/finance/invoices")
+def finance_invoices(request: Request, db: Session = Depends(get_db)):
+    required_staff(request, db, {"ADMINISTRATOR", "OPERATIONS_MANAGER", "ACCOUNTS_OFFICER"})
+    rows = db.execute(select(Invoice, Shipment).join(Shipment, Invoice.shipment_id == Shipment.shipment_id).order_by(Invoice.issued_at.desc()).limit(100)).all()
+    return {"invoices": [{"invoice_no": invoice.invoice_no, "tracking_id": shipment.tracking_id, "issued_at": invoice.issued_at.isoformat(), "total": str(invoice.total), "currency": invoice.currency.strip(), "payment_mode": invoice.preferred_payment_mode or "UNSPECIFIED", "payment_status": invoice.payment_status_code, "cash_due": str(shipment.cod_amount_due)} for invoice, shipment in rows]}
 
 
 @app.exception_handler(IntegrityError)

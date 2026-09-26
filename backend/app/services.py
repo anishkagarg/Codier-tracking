@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
-import hmac
 import math
 import os
 import secrets
@@ -12,7 +11,7 @@ from email.message import EmailMessage
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .models import Address, Customer, DeliveryOTP, Hub, Invoice, LocationUpdate, Notification, PricingRule, ProofOfDelivery, Route, Shipment, ShipmentAssignment, ShipmentStatusHistory, Staff, User, Vehicle
+from .models import Address, Customer, DeliveryOTP, Hub, Invoice, LocationUpdate, Notification, Payment, PricingRule, ProofOfDelivery, Route, Shipment, ShipmentAssignment, ShipmentStatusHistory, Staff, User, Vehicle
 from .security import hash_otp, verify_otp
 
 STATUS_TRANSITIONS = {
@@ -26,17 +25,10 @@ STATUS_TRANSITIONS = {
     "DELIVERY_FAILED": {"OUT_FOR_DELIVERY", "IN_TRANSIT", "CANCELLED"},
 }
 
-PENDING_OTPS: dict[str, tuple[str, datetime]] = {}
-
-NOTIFICATION_TYPES = {
-    "BOOKED": "BOOKED",
-    "PICKED_UP": "PICKED_UP",
-    "IN_TRANSIT": "DISPATCHED",
-    "OUT_FOR_DELIVERY": "OUT_FOR_DELIVERY",
-    "DELIVERED": "DELIVERED",
-    "DELIVERY_FAILED": "DELIVERY_FAILED",
-    "UNAVAILABLE": "DELAYED",
-}
+NOTIFICATION_TYPES = {status: "STATUS_UPDATE" for status in (
+    "BOOKED", "PICKED_UP", "IN_TRANSIT", "OUT_FOR_DELIVERY",
+    "DELIVERED", "DELIVERY_FAILED", "UNAVAILABLE",
+)}
 
 
 def money(value) -> Decimal:
@@ -93,7 +85,9 @@ def create_notification(db: Session, shipment: Shipment, type_code: str, message
             db.add(notification)
             db.flush()
         return notification
-    except Exception:
+    except Exception as exc:
+        if type_code == "OTP":
+            raise ValueError("The verification code could not be delivered to the customer's notifications") from exc
         return None
 
 
@@ -266,7 +260,14 @@ def public_tracking(db: Session, tracking_id: str) -> dict | None:
     return {"shipment_id": shipment.shipment_id, "tracking_id": shipment.tracking_id, "status": shipment.current_status, "delivery_type": shipment.delivery_type_code, "expected_delivery": shipment.expected_delivery.isoformat(), "delivery_assessment": delivery_assessment(shipment), "latest_location": latest_gps_location(db, shipment.shipment_id), "history": [{"sequence_no": e.sequence_no, "status": e.new_status, "previous_status": e.previous_status, "event_at": e.event_at.isoformat(), "location_id": e.location_id, "remarks": e.remarks} for e in events]}
 
 
-def assign_task(db: Session, shipment: Shipment, assignee: Staff, assigned_by: Staff, task_type: str) -> ShipmentAssignment:
+TASK_ROLES = {"PICKUP": "PICKUP_AGENT", "WAREHOUSE": "WAREHOUSE_OFFICER", "DELIVERY": "DELIVERY_AGENT"}
+
+
+def assign_task(db: Session, shipment: Shipment, assignee: Staff, assigned_by: Staff, task_type: str, *, commit: bool = True) -> ShipmentAssignment:
+    if task_type not in TASK_ROLES:
+        raise ValueError("Unknown shipment task type")
+    if assignee.role_code != TASK_ROLES[task_type]:
+        raise ValueError(f"{task_type.title()} tasks must be assigned to a {TASK_ROLES[task_type].replace('_', ' ').lower()}")
     if db.scalar(select(ShipmentAssignment).where(ShipmentAssignment.shipment_id == shipment.shipment_id, ShipmentAssignment.task_type_code == task_type)):
         raise ValueError("This shipment already has an assignment for that task type")
     route = db.scalar(select(Route).where(Route.active.is_(True)).order_by(Route.route_code))
@@ -276,24 +277,44 @@ def assign_task(db: Session, shipment: Shipment, assignee: Staff, assigned_by: S
     now = datetime.now(timezone.utc)
     assignment = ShipmentAssignment(assignment_id=new_id(db, ShipmentAssignment, "assignment_id", "OBUASN"), shipment_id=shipment.shipment_id, task_type_code=task_type, route_id=route.route_id, assigned_at=now, completed_at=shipment.expected_delivery_at, status_code="ASSIGNED", failure_reason="No failure recorded", completion_reference_type="SCHEDULED_REFERENCE", vehicle_id=vehicle.vehicle_id, staff_id=assignee.staff_id, assigned_by_id=assigned_by.staff_id)
     db.add(assignment)
-    db.commit()
-    db.refresh(assignment)
+    if commit:
+        db.commit()
+        db.refresh(assignment)
+    else:
+        db.flush()
     return assignment
 
 
-def transition_assignment(db: Session, assignment: ShipmentAssignment, actor: UserLike, success: bool, reason: str | None = None) -> ShipmentAssignment:
+def auto_assign_task(db: Session, shipment: Shipment, task_type: str) -> ShipmentAssignment:
+    """Dispatch each lifecycle step to its own department in the current transaction."""
+    if task_type not in TASK_ROLES:
+        raise ValueError("Unknown shipment task type")
+    existing = db.scalar(select(ShipmentAssignment).where(ShipmentAssignment.shipment_id == shipment.shipment_id, ShipmentAssignment.task_type_code == task_type))
+    if existing:
+        return existing
+    assignee = db.scalar(select(Staff).where(Staff.active.is_(True), Staff.role_code == TASK_ROLES[task_type]).order_by(Staff.staff_id))
+    dispatcher = db.scalar(select(Staff).where(Staff.active.is_(True), Staff.role_code.in_(["ADMINISTRATOR", "OPERATIONS_MANAGER"])).order_by(Staff.staff_id))
+    if not assignee or not dispatcher:
+        raise ValueError(f"No active {TASK_ROLES[task_type].replace('_', ' ').lower()} or dispatcher is available")
+    return assign_task(db, shipment, assignee, dispatcher, task_type, commit=False)
+
+
+def transition_assignment(db: Session, assignment: ShipmentAssignment, actor: UserLike, success: bool, reason: str | None = None, *, commit: bool = True) -> ShipmentAssignment:
     shipment = db.get(Shipment, assignment.shipment_id)
     if not shipment:
         raise ValueError("Shipment not found")
     staff = db.scalar(select(Staff).where(Staff.user_id == actor.user_id))
     if not staff or (staff.staff_id != assignment.staff_id and staff.role_code not in {"ADMINISTRATOR", "OPERATIONS_MANAGER"}):
         raise PermissionError("You are not authorized for this assignment")
+    if assignment.status_code == "COMPLETED":
+        raise ValueError("This task has already been completed")
     now = datetime.now(timezone.utc)
     assignment.completed_at = now
     if not success:
         assignment.status_code = "FAILED"
         assignment.failure_reason = (reason or "The operation could not be completed").strip()
-        db.commit()
+        if commit:
+            db.commit()
         return assignment
     assignment.status_code = "COMPLETED"
     assignment.failure_reason = "Completed successfully"
@@ -301,7 +322,8 @@ def transition_assignment(db: Session, assignment: ShipmentAssignment, actor: Us
         add_location_and_history(db, shipment, actor, "PICKED_UP", "Pickup confirmed", "Pickup completed")
     elif assignment.task_type_code == "DELIVERY":
         add_location_and_history(db, shipment, actor, "DELIVERED", "Delivery address", "Delivery completed")
-    db.commit()
+    if commit:
+        db.commit()
     return assignment
 
 
@@ -310,31 +332,64 @@ def request_delivery_otp(db: Session, assignment: ShipmentAssignment, actor: Use
     staff = db.scalar(select(Staff).where(Staff.user_id == actor.user_id))
     if not shipment or not staff or staff.staff_id != assignment.staff_id:
         raise PermissionError("Only the assigned delivery agent can request an OTP")
-    if shipment.current_status not in {"OUT_FOR_DELIVERY", "IN_TRANSIT", "UNAVAILABLE"}:
+    if shipment.current_status != "OUT_FOR_DELIVERY" or assignment.status_code != "IN_PROGRESS":
         raise ValueError("A delivery OTP can only be requested for an active delivery")
     code = f"{secrets.randbelow(1_000_000):06d}"
-    PENDING_OTPS[assignment.assignment_id] = (code, datetime.now(timezone.utc) + timedelta(minutes=10))
+    now = datetime.now(timezone.utc)
+    otp = db.scalar(select(DeliveryOTP).where(DeliveryOTP.assignment_id == assignment.assignment_id))
+    if not otp:
+        otp = DeliveryOTP(otp_id=new_id(db, DeliveryOTP, "otp_id", "OBUOTP"), assignment_id=assignment.assignment_id, code_hash=hash_otp(code), expires_at=now + timedelta(minutes=10), attempt_count=0, verified_at=None, consumed_at=None, created_at=now)
+        db.add(otp)
+    else:
+        otp.code_hash = hash_otp(code)
+        otp.expires_at = now + timedelta(minutes=10)
+        otp.attempt_count = 0
+        otp.verified_at = None
+        otp.consumed_at = None
+        otp.created_at = now
+    message = f"Delivery code for shipment {shipment.tracking_id}: {code}. Share it with the recipient only when the parcel arrives. This code expires in 10 minutes."
+    if create_notification(db, shipment, "OTP", message) is None:
+        db.rollback()
+        raise ValueError("The verification code could not be delivered to the customer's notifications")
+    db.commit()
+    send_email_if_configured(db, shipment, message)
     return code
 
 
-def verify_delivery(db: Session, assignment: ShipmentAssignment, actor: UserLike, code: str, remarks: str) -> ProofOfDelivery:
-    pending = PENDING_OTPS.get(assignment.assignment_id)
-    if not pending or pending[1] < datetime.now(timezone.utc) or not hmac.compare_digest(pending[0], code.strip()):
-        raise ValueError("OTP is invalid, expired, or not requested")
+def verify_delivery(db: Session, assignment: ShipmentAssignment, actor: UserLike, code: str, remarks: str, cash_collected: bool = False) -> ProofOfDelivery:
     shipment = db.get(Shipment, assignment.shipment_id)
     staff = db.scalar(select(Staff).where(Staff.user_id == actor.user_id))
     if not shipment or not staff or staff.staff_id != assignment.staff_id:
         raise PermissionError("Only the assigned delivery agent can verify the OTP")
+    if shipment.current_status != "OUT_FOR_DELIVERY" or assignment.status_code != "IN_PROGRESS":
+        raise ValueError("Delivery has not been started or is already complete")
+    cash_due = money(shipment.cod_amount_due)
+    if cash_due > 0 and not cash_collected:
+        raise ValueError("Confirm that the cash delivery charge was collected before completing delivery")
+    otp = db.scalar(select(DeliveryOTP).where(DeliveryOTP.assignment_id == assignment.assignment_id))
     now = datetime.now(timezone.utc)
-    otp = DeliveryOTP(otp_id=new_id(db, DeliveryOTP, "otp_id", "OBUOTP"), assignment_id=assignment.assignment_id, code_hash=hash_otp(code), expires_at=pending[1], attempt_count=0, verified_at=now, consumed_at=now, created_at=now)
-    db.add(otp)
+    if not otp or otp.consumed_at or otp.expires_at < now or otp.attempt_count >= 5:
+        raise ValueError("OTP is invalid, expired, or not requested")
+    if not verify_otp(code.strip(), otp.code_hash):
+        otp.attempt_count += 1
+        db.commit()
+        raise ValueError("OTP is invalid, expired, or not requested")
+    otp.verified_at = now
+    otp.consumed_at = now
     db.flush()
     proof = ProofOfDelivery(proof_id=new_id(db, ProofOfDelivery, "proof_id", "OBUPOD"), shipment_id=shipment.shipment_id, assignment_id=assignment.assignment_id, otp_id=otp.otp_id, proof_reference=f"{shipment.tracking_id}-POD", otp_verified=True, captured_at=now, remarks=remarks.strip() or "OTP verified", captured_by_id=staff.staff_id)
     db.add(proof)
+    if cash_due > 0:
+        invoice = db.scalar(select(Invoice).where(Invoice.shipment_id == shipment.shipment_id))
+        if not invoice:
+            raise ValueError("Invoice missing for cash collection")
+        db.add(Payment(payment_id=new_id(db, Payment, "payment_id", "OBUPAY"), invoice_no=invoice.invoice_no, amount=cash_due, method_code="CASH", paid_at=now, reference_no=f"{shipment.tracking_id}-CASH", recorded_by_id=staff.staff_id))
+        invoice.payment_status_code = "PAID"
+        shipment.payment_amount = cash_due
+        shipment.cod_amount_due = Decimal("0.00")
     assignment.status_code = "COMPLETED"
     assignment.completed_at = now
     assignment.failure_reason = "Completed successfully"
     add_location_and_history(db, shipment, actor, "DELIVERED", "Delivery address", "Delivered with OTP proof")
     db.commit()
-    PENDING_OTPS.pop(assignment.assignment_id, None)
     return proof
