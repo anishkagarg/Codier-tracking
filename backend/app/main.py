@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from contextlib import asynccontextmanager
+from functools import lru_cache
 import hashlib
 import hmac
 import json
@@ -17,16 +18,19 @@ from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
+from typing import Literal
 
 from .db import engine, get_db
 from .models import Address, AssignmentStatus, BookingIdempotency, Complaint, Customer, DeliveryType, Hub, Invoice, LocationUpdate, Notification, Payment, PricingRule, Refund, Route, Shipment, ShipmentAssignment, ShipmentStatusHistory, Staff, StaffRole, User, Vehicle, WarehouseScan
 from .security import hash_password, verify_password
-from .services import add_location_and_history, assign_task, create_booking, delivery_assessment, haversine_km, latest_gps_location, new_id, optimize_route, public_tracking, request_delivery_otp, transition_assignment, verify_delivery
+from .services import add_location_and_history, assign_task, create_booking, delivery_assessment, haversine_km, latest_gps_location, new_id, optimize_route, price_for_weight, public_tracking, request_delivery_otp, transition_assignment, verify_delivery
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     # Additive migration: creates only the new table and leaves existing records untouched.
     BookingIdempotency.__table__.create(bind=engine, checkfirst=True)
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS preferred_payment_mode VARCHAR(20)"))
     yield
 
 
@@ -75,11 +79,39 @@ def location_search(q: str = Query(min_length=3, max_length=240)):
         return {"features": []}
 
 
+@lru_cache(maxsize=256)
+def _search_post_offices(query: str) -> list[dict]:
+    result = external_json("https://api.pincodeapi.in/api/v1/search?q=" + quote(query) + "&limit=100&offset=0")
+    return result.get("data", {}).get("post_offices", [])
+
+
+@app.get("/api/locations/post-offices")
+def location_post_offices(city: str = Query(min_length=2, max_length=100), state: str = Query(min_length=2, max_length=100)):
+    """Offer matching delivery post offices so their PIN is selected, never typed."""
+    try:
+        offices = _search_post_offices(f"{city} {state}")
+        normalized_state = state.strip().casefold()
+        normalized_city = city.strip().casefold()
+        matches = [
+            {"name": office.get("office_name", "Post office"), "pincode": office.get("pincode", ""), "district": office.get("district", ""), "state": office.get("state", "")}
+            for office in offices
+            if str(office.get("state", "")).strip().casefold() == normalized_state
+            and str(office.get("pincode", "")).isdigit()
+            and len(str(office.get("pincode"))) == 6
+            and str(office.get("delivery_status", "Delivery")).strip().casefold() == "delivery"
+            and (str(office.get("district", "")).strip().casefold() == normalized_city or normalized_city in str(office.get("office_name", "")).strip().casefold())
+        ]
+        unique = {(item["name"], item["pincode"]): item for item in matches}
+        return {"post_offices": list(unique.values())}
+    except Exception:
+        return {"post_offices": []}
+
+
 class AddressIn(BaseModel):
     line1: str = Field(min_length=2, max_length=300)
     city: str = Field(min_length=2, max_length=100)
     state: str = Field(min_length=2, max_length=100)
-    postal_code: str = Field(min_length=3, max_length=20)
+    postal_code: str = Field(pattern=r"^\d{6}$", min_length=6, max_length=6)
     country: str = Field(default="IN", min_length=2, max_length=2)
     contact_name: str = Field(min_length=2, max_length=120)
     contact_phone: str = Field(min_length=7, max_length=30)
@@ -98,6 +130,13 @@ class BookingIn(BaseModel):
     fragile: bool = False
     priority: bool = False
     cod_amount_due: Decimal = Field(default=Decimal("0"), ge=0, max_digits=14, decimal_places=2)
+    payment_mode: Literal["CASH", "RAZORPAY"] = "RAZORPAY"
+
+
+class PriceQuoteIn(BaseModel):
+    weight_kg: Decimal = Field(gt=0, max_digits=12, decimal_places=3)
+    delivery_type_code: str = Field(default="STANDARD", max_length=20)
+    destination_zone: str = Field(default="LOCAL", max_length=100)
 
 
 class AssignmentIn(BaseModel):
@@ -478,6 +517,16 @@ def book_shipment(payload: BookingIn, request: Request, db: Session = Depends(ge
         raise HTTPException(409, "The booking could not be recorded because it conflicts with an existing order.") from exc
     except ValueError as exc:
         db.rollback()
+        raise HTTPException(409, str(exc))
+
+
+@app.post("/api/pricing/quote")
+def pricing_quote(payload: PriceQuoteIn, request: Request, db: Session = Depends(get_db)):
+    required_user(request, db)
+    try:
+        amount, rule = price_for_weight(db, payload.delivery_type_code, payload.destination_zone, payload.weight_kg)
+        return {"amount": str(amount), "currency": rule.currency.strip(), "delivery_type_code": payload.delivery_type_code, "weight_kg": str(payload.weight_kg), "pricing_rule_version": rule.version}
+    except ValueError as exc:
         raise HTTPException(409, str(exc))
 
 

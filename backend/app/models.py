@@ -296,6 +296,7 @@ class Invoice(Base):
     total = Column(Numeric(14, 2), nullable=False)
     currency = Column(CHAR(3), nullable=False)
     payment_status_code = Column(String(30), ForeignKey("payment_statuses.status_code"), nullable=False)
+    preferred_payment_mode = Column(String(20), nullable=True)
 
 
 class Payment(Base):

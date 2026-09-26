@@ -248,11 +248,12 @@ def create_booking(db: Session, customer: Customer, actor: UserLike, sender: dic
         return obj
     sender_address = address(sender, "ORIGIN")
     receiver_address = address(receiver, "DESTINATION")
-    shipment = Shipment(shipment_id=new_id(db, Shipment, "shipment_id", "OBUSHP"), tracking_id=new_id(db, Shipment, "tracking_id", "OBUTRK"), customer_id=customer.customer_id, sender_address_id=sender_address.address_id, receiver_address_id=receiver_address.address_id, booking_date=now, expected_delivery_at=eta, delivery_reference_at=eta, current_status="BOOKED", weight_kg=weight, length_cm=parcel["length_cm"], width_cm=parcel["width_cm"], height_cm=parcel["height_cm"], parcel_type=parcel.get("parcel_type", "Parcel"), delivery_mode=delivery_type, charge=charge, currency=rule.currency, payment_amount=Decimal("0.00"), pricing_rule_id=rule.pricing_rule_id, fragile=bool(parcel.get("fragile")), priority=bool(parcel.get("priority")), delivery_type_code=delivery_type, expected_delivery=eta.date(), delivery_reference_type="SCHEDULED_REFERENCE", cod_amount_due=money(parcel.get("cod_amount_due", 0)), created_by=actor.user_id)
+    cash_due = charge if parcel.get("payment_mode", "RAZORPAY") == "CASH" else Decimal("0.00")
+    shipment = Shipment(shipment_id=new_id(db, Shipment, "shipment_id", "OBUSHP"), tracking_id=new_id(db, Shipment, "tracking_id", "OBUTRK"), customer_id=customer.customer_id, sender_address_id=sender_address.address_id, receiver_address_id=receiver_address.address_id, booking_date=now, expected_delivery_at=eta, delivery_reference_at=eta, current_status="BOOKED", weight_kg=weight, length_cm=parcel["length_cm"], width_cm=parcel["width_cm"], height_cm=parcel["height_cm"], parcel_type=parcel.get("parcel_type", "Parcel"), delivery_mode=delivery_type, charge=charge, currency=rule.currency, payment_amount=Decimal("0.00"), pricing_rule_id=rule.pricing_rule_id, fragile=bool(parcel.get("fragile")), priority=bool(parcel.get("priority")), delivery_type_code=delivery_type, expected_delivery=eta.date(), delivery_reference_type="SCHEDULED_REFERENCE", cod_amount_due=money(cash_due), created_by=actor.user_id)
     db.add(shipment)
     db.flush()
     add_location_and_history(db, shipment, actor, "BOOKED", sender_address.city, "Customer booking created")
-    invoice = Invoice(invoice_no=new_id(db, Invoice, "invoice_no", "OBUINV"), shipment_id=shipment.shipment_id, issued_at=now, subtotal=charge, tax=Decimal("0.00"), total=charge, currency=rule.currency, payment_status_code="PENDING")
+    invoice = Invoice(invoice_no=new_id(db, Invoice, "invoice_no", "OBUINV"), shipment_id=shipment.shipment_id, issued_at=now, subtotal=charge, tax=Decimal("0.00"), total=charge, currency=rule.currency, payment_status_code="PENDING", preferred_payment_mode=parcel.get("payment_mode", "RAZORPAY"))
     db.add(invoice)
     return shipment
 
