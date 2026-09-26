@@ -1,5 +1,6 @@
 const API = window.OPTIGO_API_BASE || "http://127.0.0.1:8000";
 const state = { account: null, view: "dashboard" };
+let startupReady = Promise.resolve();
 const ROLE_VIEWS = {
   CUSTOMER: ["dashboard", "shipments", "booking", "payments", "tracking", "notifications", "complaints"],
   ADMINISTRATOR: ["dashboard", "shipments", "operations", "tasks", "warehouse", "finance", "complaints", "tracking", "reports", "route-planner"],
@@ -225,15 +226,34 @@ document.addEventListener("click",(e)=>{
   if(task)handleTaskAction(task);
 });
 document.addEventListener("click",(e)=>{const read=e.target.closest("[data-notification-read]");if(read){(async()=>{try{await api(`/api/notifications/${read.dataset.notificationRead}/read`,{method:"POST"});await notifications();toast("Notification marked as read")}catch(err){toast(err.message,true)}})()}const update=e.target.closest("[data-complaint-update]");if(update){const select=document.querySelector(`[data-complaint-status="${CSS.escape(update.dataset.complaintUpdate)}"]`);(async()=>{try{await api(`/api/complaints/${update.dataset.complaintUpdate}`,{method:"PATCH",body:JSON.stringify({status_code:select.value})});await complaints();toast("Complaint status updated")}catch(err){toast(err.message,true)}})()}});
-document.addEventListener("submit",async(e)=>{if(e.target.id==="login-form"||e.target.id==="register-form"){e.preventDefault();const f=new FormData(e.target);$("#auth-error").classList.remove("show");try{const path=e.target.id==="login-form"?"/api/auth/login":"/api/auth/register";const a=await api(path,{method:"POST",body:JSON.stringify(Object.fromEntries(f))});if(e.target.id==="register-form"){const email=f.get("email");renderAuth("login");$("#login-form [name=email]").value=email;showAuthMessage("Account Created Successfully. Please sign in to continue.",true);$("#login-form [name=password]").focus();return}state.account=a.account;showShell();toast("Signed in successfully")}catch(err){showAuthError(err.message||"Unable to sign in")}}});
+document.addEventListener("submit",async(e)=>{
+  if(e.target.id!=="login-form"&&e.target.id!=="register-form")return;
+  e.preventDefault();
+  const form=e.target, button=form.querySelector('[type="submit"]'), fields=new FormData(form);
+  button.disabled=true;
+  showAuthMessage("Connecting to OptiGo…",true);
+  try{
+    await startupReady;
+    $("#auth-error").classList.remove("show");
+    const path=form.id==="login-form"?"/api/auth/login":"/api/auth/register";
+    const result=await api(path,{method:"POST",body:JSON.stringify(Object.fromEntries(fields))});
+    if(form.id==="register-form"){
+      const email=fields.get("email");
+      renderAuth("login");
+      $("#login-form [name=email]").value=email;
+      showAuthMessage("Account Created Successfully. Please sign in to continue.",true);
+      $("#login-form [name=password]").focus();
+      return;
+    }
+    state.account=result.account;
+    showShell();
+    toast("Signed in successfully");
+  }catch(err){showAuthError(err.message||"Unable to sign in")}
+  finally{button.disabled=false}
+});
 document.addEventListener("submit",async(e)=>{if(e.target.id==="complaint-form"){e.preventDefault();const payload=Object.fromEntries(new FormData(e.target));if(!payload.shipment_id)delete payload.shipment_id;try{await api("/api/complaints",{method:"POST",body:JSON.stringify(payload)});e.target.reset();$("#complaint-result").innerHTML=`<div class="result-card"><h4>Complaint submitted</h4><div>Support will review your request.</div></div>`;await complaints();toast("Complaint submitted")}catch(err){$("#complaint-result").innerHTML=`<div class="error-text">${esc(err.message)}</div>`}}});
 function closeLogoutModal(){$("#logout-modal").classList.add("hidden")}
 $("#logout-button").onclick=()=>{$("#logout-modal").classList.remove("hidden");$("#cancel-logout").focus()};$("#cancel-logout").onclick=closeLogoutModal;$("#logout-modal").onclick=(e)=>{if(e.target.id==="logout-modal")closeLogoutModal()};$("#confirm-logout").onclick=async()=>{const button=$("#confirm-logout");button.disabled=true;try{await api("/api/auth/logout",{method:"POST"});state.account=null;closeLogoutModal();$("#app-shell").classList.add("hidden");$("#auth-shell").classList.remove("hidden");renderAuth("login")}catch(err){closeLogoutModal();toast(err.message,true)}finally{button.disabled=false}};function closeDeleteModal(){$("#delete-account-modal").classList.add("hidden")}$("#delete-account-button").onclick=()=>{$("#delete-account-modal").classList.remove("hidden");$("#cancel-delete-account").focus()};$("#cancel-delete-account").onclick=closeDeleteModal;$("#delete-account-modal").onclick=(e)=>{if(e.target.id==="delete-account-modal")closeDeleteModal()};$("#confirm-delete-account").onclick=async()=>{const button=$("#confirm-delete-account");button.disabled=true;try{await api("/api/auth/account",{method:"DELETE"});state.account=null;closeDeleteModal();$("#app-shell").classList.add("hidden");$("#auth-shell").classList.remove("hidden");renderAuth("login");showAuthMessage("Account deleted successfully.",true)}catch(err){closeDeleteModal();toast(err.message,true)}finally{button.disabled=false}};$("#menu-button").onclick=()=>{$("#sidebar").classList.toggle("open");$("#sidebar-overlay").classList.toggle("show")};$("#sidebar-overlay").onclick=()=>{$("#sidebar").classList.remove("open");$("#sidebar-overlay").classList.remove("show")};
-(async()=>{
-  // Opening the site always begins at sign-in, even when this browser held a prior customer cookie.
-  try{await api("/api/auth/logout",{method:"POST"})}catch{}
-  state.account=null;
-  renderAuth("login");
-  $("#login-form button[type=submit]").disabled=false;
-  $("#auth-switch button").disabled=false;
-})();
+// Opening the site begins at sign-in, even when this browser held a prior session.
+renderAuth("login");
+startupReady=api("/api/auth/logout",{method:"POST"}).catch(()=>{});
