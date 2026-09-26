@@ -70,7 +70,7 @@ The `Idempotency-Key` header must remain the same for retries of one booking att
 
 New bookings create a pickup assignment. Completing pickup creates a warehouse assignment; recording its `RECEIVED` scan moves the shipment to `IN_TRANSIT` and creates a delivery assignment. The delivery agent starts delivery, requests an OTP (stored in PostgreSQL and shown in the customer's Notifications), and verifies it at handover. Cash bookings require explicit cash-collection confirmation before delivery; the payment and invoice are then updated together. Existing unassigned bookings are not silently backfilled.
 
-Razorpay test mode requires configured test keys. Without them, online checkout is disabled; a local simulation cannot mark an invoice paid.
+Razorpay test mode requires configured `rzp_test_` keys. Without them, online checkout is disabled; a local simulation cannot mark an invoice paid. Verification checks the Checkout signature and fetches the Razorpay order and payment to confirm the invoice receipt, amount, currency, and captured status before updating payment records.
 
 `POST /api/pricing/quote` accepts `weight_kg`, `delivery_type_code`, and `destination_zone` and returns the amount/currency from the same active rate calculation used by booking.
 

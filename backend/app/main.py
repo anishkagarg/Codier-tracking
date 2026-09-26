@@ -586,10 +586,14 @@ def route_optimize(payload: RouteOptimizeIn, request: Request, db: Session = Dep
     return optimize_route({"latitude": payload.start_latitude, "longitude": payload.start_longitude}, stops)
 
 
+def razorpay_test_keys_ready() -> bool:
+    return os.getenv("RAZORPAY_KEY_ID", "").strip().startswith("rzp_test_") and bool(os.getenv("RAZORPAY_KEY_SECRET", "").strip())
+
+
 @app.get("/api/payments/options")
 def payment_options(request: Request, db: Session = Depends(get_db)):
     required_user(request, db)
-    return {"cash_available": True, "razorpay_available": bool(os.getenv("RAZORPAY_KEY_ID", "").strip() and os.getenv("RAZORPAY_KEY_SECRET", "").strip()), "razorpay_mode": os.getenv("RAZORPAY_MODE", "test")}
+    return {"cash_available": True, "razorpay_available": razorpay_test_keys_ready(), "razorpay_mode": "test"}
 
 
 @app.post("/api/payments/razorpay/order")
@@ -607,7 +611,7 @@ def razorpay_order(payload: RazorpayOrderIn, request: Request, db: Session = Dep
         raise HTTPException(409, "This invoice is not awaiting an online payment")
     amount_paise = int(Decimal(str(invoice.total)) * 100)
     key_id, key_secret = os.getenv("RAZORPAY_KEY_ID", "").strip(), os.getenv("RAZORPAY_KEY_SECRET", "").strip()
-    if not key_id or not key_secret:
+    if not razorpay_test_keys_ready():
         raise HTTPException(503, "Razorpay test checkout is unavailable until test keys are configured. Choose cash for now.")
     import httpx
     try:
@@ -633,13 +637,27 @@ def razorpay_verify(payload: RazorpayVerifyIn, request: Request, db: Session = D
     if invoice.preferred_payment_mode != "RAZORPAY" or invoice.payment_status_code == "PAID":
         raise HTTPException(409, "This invoice is not awaiting an online payment")
     key_secret = os.getenv("RAZORPAY_KEY_SECRET", "").strip()
-    if not key_secret or payload.order_id.startswith("local_order_"):
+    if not razorpay_test_keys_ready() or payload.order_id.startswith("local_order_"):
         raise HTTPException(503, "A signed Razorpay test payment is required")
     expected = hmac.new(key_secret.encode(), f"{payload.order_id}|{payload.payment_id}".encode(), hashlib.sha256).hexdigest()
     verified = hmac.compare_digest(expected, payload.signature)
     if not verified:
         raise HTTPException(400, "Razorpay payment signature is invalid")
+    import httpx
+    try:
+        auth = (os.getenv("RAZORPAY_KEY_ID", "").strip(), key_secret)
+        order_response = httpx.get(f"https://api.razorpay.com/v1/orders/{payload.order_id}", auth=auth, timeout=15)
+        payment_response = httpx.get(f"https://api.razorpay.com/v1/payments/{payload.payment_id}", auth=auth, timeout=15)
+        order_response.raise_for_status()
+        payment_response.raise_for_status()
+        order, payment = order_response.json(), payment_response.json()
+    except Exception as exc:
+        raise HTTPException(502, "Razorpay could not confirm this payment") from exc
+    expected_paise = int(Decimal(str(invoice.total)) * 100)
+    if order.get("receipt") != invoice.invoice_no or order.get("amount") != expected_paise or order.get("currency") != invoice.currency.strip() or order.get("status") != "paid" or payment.get("order_id") != payload.order_id or payment.get("amount") != expected_paise or payment.get("currency") != invoice.currency.strip() or payment.get("status") != "captured":
+        raise HTTPException(409, "Razorpay payment does not match this invoice or is not captured")
     invoice.payment_status_code = "PAID"
+    shipment.payment_amount = invoice.total
     db.commit()
     return {"verified": True, "provider": "razorpay", "invoice_no": invoice.invoice_no, "payment_status": invoice.payment_status_code}
 

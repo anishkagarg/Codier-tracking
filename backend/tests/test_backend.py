@@ -5,6 +5,7 @@ from unittest.mock import Mock
 
 from app.security import hash_otp, hash_password, verify_otp, verify_password
 from app.services import STATUS_TRANSITIONS, price_for_weight
+from app.main import razorpay_test_keys_ready
 
 
 def test_password_is_one_way_and_verifies():
@@ -37,3 +38,11 @@ def test_price_quote_uses_the_current_rule_and_rounds_to_currency():
 
     assert amount == Decimal("65.55")
     assert matched_rule is rule
+
+
+def test_razorpay_checkout_requires_test_keys(monkeypatch):
+    monkeypatch.setenv("RAZORPAY_KEY_ID", "rzp_live_example")
+    monkeypatch.setenv("RAZORPAY_KEY_SECRET", "example-secret")
+    assert not razorpay_test_keys_ready()
+    monkeypatch.setenv("RAZORPAY_KEY_ID", "rzp_test_example")
+    assert razorpay_test_keys_ready()
