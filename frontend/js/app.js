@@ -33,6 +33,10 @@ function showShell(){
   $("#account-role").textContent=a.role.replaceAll("_"," ");
   $("#avatar").textContent=(a.name||"S").slice(0,1).toUpperCase();
   $("#staff-nav").classList.toggle("hidden",a.role==="CUSTOMER");
+  const sectionName={ACCOUNTS_OFFICER:"Accounts",BOOKING_OFFICER:"Booking",DELIVERY_AGENT:"Delivery",PICKUP_AGENT:"Pickup",SUPPORT_OFFICER:"Support",TRACKING_OFFICER:"Tracking",WAREHOUSE_OFFICER:"Warehouse"}[a.role]||"Operations";
+  $("#staff-nav .nav-label").textContent=sectionName;
+  const taskLabel={DELIVERY_AGENT:"My deliveries",PICKUP_AGENT:"My pickups",WAREHOUSE_OFFICER:"My warehouse tasks",ADMINISTRATOR:"Team tasks",OPERATIONS_MANAGER:"Team tasks"}[a.role]||"My tasks";
+  $("#staff-nav [data-view=tasks]").lastChild.textContent=taskLabel;
   document.querySelectorAll("#nav-list [data-view]").forEach(node=>node.classList.toggle("hidden",!allowed.includes(node.dataset.view)));
   navigate(state.view);
 }
@@ -131,7 +135,7 @@ function booking(){
 function tracking(){setTitle("Track shipment");$("#view").innerHTML=`<div class="section-heading"><div><h2>Follow the movement timeline.</h2><p>Enter your tracking ID to follow the shipment’s progress.</p></div></div><form id="track-form" class="search-bar"><input id="track-input" placeholder="e.g. OBUTRK000001" required><button class="button primary">Track shipment</button></form><div id="track-result"></div>`;$("#track-form").onsubmit=async(e)=>{e.preventDefault();try{const t=await api(`/api/track/${encodeURIComponent($("#track-input").value)}`);const a=t.delivery_assessment||{};$("#track-result").innerHTML=`<div class="grid-2"><section class="panel"><div class="panel-header"><h3>${esc(t.tracking_id)}</h3><span class="status-badge ${statusClass(t.status)}">${esc(t.status.replaceAll("_"," "))}</span></div><p class="muted" style="font-size:13px">${esc(t.delivery_type)} delivery · expected ${formatDate(t.expected_delivery)}</p><div class="assessment-callout ${a.is_delayed?"delayed":""}"><strong>${esc((a.state||"ON_SCHEDULE").replaceAll("_"," "))}</strong><span>${a.is_delayed?`${a.days_overdue} day(s) beyond the stored ETA`:`Schedule assessment based on the stored ETA`}</span></div><div class="timeline">${t.history.map(h=>`<div class="timeline-item"><span class="timeline-dot"></span><div class="timeline-body"><strong>${esc(h.status.replaceAll("_"," "))}</strong><p>${esc(h.remarks)}</p><small>${formatDate(h.event_at)} · ${esc(h.location_id)}</small></div></div>`).join("")}</div></section><section class="panel"><h3>Tracking privacy</h3><p class="muted" style="font-size:13px">This view is intentionally limited to shipment movement. Private contacts, OTP values, proof references, and financial details are not shown here.</p></section></div>`}catch(err){$("#track-result").innerHTML=`<div class="panel empty-state"><strong>Tracking ID not found</strong><span>${esc(err.message)}</span></div>`}}}
 function taskAddress(address){return [address.line1,address.city,address.state,address.postal_code].filter(Boolean).map(esc).join(", ")}
 async function tasks(){
-  setTitle("My tasks");
+  setTitle(state.account.role==="DELIVERY_AGENT"?"My deliveries":state.account.role==="PICKUP_AGENT"?"My pickups":"My tasks");
   const d=await api("/api/tasks");
   const open=d.tasks.filter(t=>!["COMPLETED","CANCELLED"].includes(t.status_code));
   $("#view").innerHTML=`<div class="section-heading"><div><h2>${state.account.role==="DELIVERY_AGENT"?"My deliveries":state.account.role==="PICKUP_AGENT"?"My pickups":"Assigned work"}</h2><p>${open.length} active task${open.length===1?"":"s"} awaiting action.</p></div></div><div class="task-list">${open.length?open.map(t=>{
