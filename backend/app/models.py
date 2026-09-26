@@ -210,6 +210,15 @@ class Shipment(Base):
     created_by = Column(String(12), ForeignKey("users.user_id"), nullable=False)
 
 
+class BookingIdempotency(Base):
+    """Persist client booking keys so retries cannot create another shipment."""
+    __tablename__ = "booking_idempotency"
+    idempotency_key = Column(String(100), primary_key=True, nullable=False)
+    user_id = Column(String(12), ForeignKey("users.user_id"), nullable=False)
+    shipment_id = Column(String(40), ForeignKey("shipments.shipment_id"), nullable=False, unique=True)
+    created_at = Column(DateTime(timezone=True), nullable=False)
+
+
 class LocationUpdate(Base):
     __tablename__ = "location_updates"
     location_id = Column(String(40), primary_key=True, nullable=False)

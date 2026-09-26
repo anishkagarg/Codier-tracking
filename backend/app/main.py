@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from contextlib import asynccontextmanager
 import hashlib
 import hmac
 import json
@@ -17,12 +18,19 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
-from .db import get_db
-from .models import Address, AssignmentStatus, Complaint, Customer, DeliveryType, Hub, Invoice, LocationUpdate, Notification, Payment, PricingRule, Refund, Route, Shipment, ShipmentAssignment, ShipmentStatusHistory, Staff, StaffRole, User, Vehicle, WarehouseScan
+from .db import engine, get_db
+from .models import Address, AssignmentStatus, BookingIdempotency, Complaint, Customer, DeliveryType, Hub, Invoice, LocationUpdate, Notification, Payment, PricingRule, Refund, Route, Shipment, ShipmentAssignment, ShipmentStatusHistory, Staff, StaffRole, User, Vehicle, WarehouseScan
 from .security import hash_password, verify_password
 from .services import add_location_and_history, assign_task, create_booking, delivery_assessment, haversine_km, latest_gps_location, new_id, optimize_route, public_tracking, request_delivery_otp, transition_assignment, verify_delivery
 
-app = FastAPI(title="OptiGo Courier Tracking API", version="1.0.0", description="OptiGo backend connected to the configured PostgreSQL database.")
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # Additive migration: creates only the new table and leaves existing records untouched.
+    BookingIdempotency.__table__.create(bind=engine, checkfirst=True)
+    yield
+
+
+app = FastAPI(title="OptiGo Courier Tracking API", version="1.0.0", description="OptiGo backend connected to the configured PostgreSQL database.", lifespan=lifespan)
 origins = [x.strip() for x in os.getenv("FRONTEND_ORIGINS", "http://127.0.0.1:5173,http://localhost:5173").split(",") if x.strip()]
 cookie_secure = os.getenv("COOKIE_SECURE", "false").lower() == "true"
 # GitHub Pages and Render are different sites, so the authenticated session
@@ -443,10 +451,32 @@ def book_shipment(payload: BookingIn, request: Request, db: Session = Depends(ge
     customer = db.scalar(select(Customer).where(Customer.user_id == user.user_id))
     if not customer:
         raise HTTPException(403, "Customer profile required")
+    idempotency_key = request.headers.get("Idempotency-Key", "").strip()
+    if not idempotency_key or len(idempotency_key) > 100:
+        raise HTTPException(400, "A valid Idempotency-Key is required. Please retry from the booking form.")
+    existing = db.get(BookingIdempotency, idempotency_key)
+    if existing:
+        if existing.user_id != user.user_id:
+            raise HTTPException(409, "This booking request key has already been used.")
+        prior = db.get(Shipment, existing.shipment_id)
+        tracking = f" Tracking ID: {prior.tracking_id}." if prior else ""
+        raise HTTPException(409, f"You have already placed this order.{tracking}")
     try:
         shipment = create_booking(db, customer, user, payload.sender.model_dump(), payload.receiver.model_dump(), payload.model_dump())
+        db.add(BookingIdempotency(idempotency_key=idempotency_key, user_id=user.user_id, shipment_id=shipment.shipment_id, created_at=datetime.now(timezone.utc)))
+        db.commit()
+        db.refresh(shipment)
         return shipment_view(db, shipment)
-    except (ValueError, IntegrityError) as exc:
+    except IntegrityError as exc:
+        db.rollback()
+        # Handles simultaneous retries: the unique key means only one transaction wins.
+        existing = db.get(BookingIdempotency, idempotency_key)
+        if existing and existing.user_id == user.user_id:
+            prior = db.get(Shipment, existing.shipment_id)
+            tracking = f" Tracking ID: {prior.tracking_id}." if prior else ""
+            raise HTTPException(409, f"You have already placed this order.{tracking}")
+        raise HTTPException(409, "The booking could not be recorded because it conflicts with an existing order.") from exc
+    except ValueError as exc:
         db.rollback()
         raise HTTPException(409, str(exc))
 

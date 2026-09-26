@@ -254,8 +254,6 @@ def create_booking(db: Session, customer: Customer, actor: UserLike, sender: dic
     add_location_and_history(db, shipment, actor, "BOOKED", sender_address.city, "Customer booking created")
     invoice = Invoice(invoice_no=new_id(db, Invoice, "invoice_no", "OBUINV"), shipment_id=shipment.shipment_id, issued_at=now, subtotal=charge, tax=Decimal("0.00"), total=charge, currency=rule.currency, payment_status_code="PENDING")
     db.add(invoice)
-    db.commit()
-    db.refresh(shipment)
     return shipment
 
 
