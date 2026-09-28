@@ -99,3 +99,40 @@ body:has(#app-shell:not(.hidden)) .modal-card{box-shadow:0 24px 70px rgba(11,22,
 #auth-shell:has(#login-form:not(.hidden)) .auth-switch button{color:#586F59}
 #auth-shell:has(#login-form:not(.hidden)) input:focus{border-color:#6F876F;box-shadow:0 0 0 3px rgba(111,135,111,.16)}
 @media(max-width:720px){#auth-shell:has(#login-form:not(.hidden)) .auth-form-wrap{padding:24px}#auth-shell:has(#login-form:not(.hidden)) .mobile-brand{margin-bottom:24px}}
+
+/* Prussian Blue / Harvest Gold production palette. */
+:root{--primary:#DD9529;--primary-hover:#B9791F;--success:#DD9529;--accent:#F0B75A;--attention:#DD9529;--bg:#FFF9F0;--card:#FFFFFF;--text:#0C1E36;--muted:#746347;--border:#EBDDC5;--shadow:0 16px 40px rgba(12,30,54,.08)}
+body:has(#app-shell:not(.hidden)){--primary:#DD9529;--primary-hover:#B9791F;--success:#DD9529;--accent:#F0B75A;--attention:#DD9529;--bg:#FFF9F0;--card:#FFFFFF;--text:#0C1E36;--muted:#746347;--border:#EBDDC5;--shadow:0 16px 40px rgba(12,30,54,.08);--navy:#0C1E36;--sage:#DD9529;--sage-hover:#B9791F;--blue-soft:#F9EACD;--surface-soft:#FFF7E7}
+body:has(#app-shell:not(.hidden)) .sidebar{background:#0C1E36;border-right-color:#263D58}
+body:has(#app-shell:not(.hidden)) .sidebar-logo{filter:none}
+body:has(#app-shell:not(.hidden)) .sidebar-brand small,body:has(#app-shell:not(.hidden)) .sidebar-footer{color:#C8D6E5}
+body:has(#app-shell:not(.hidden)) .nav-label{color:#C8D6E5}
+body:has(#app-shell:not(.hidden)) .nav-item{color:#E7EEF5}
+body:has(#app-shell:not(.hidden)) .nav-item:hover{background:#172E4B;color:#FFFFFF}
+body:has(#app-shell:not(.hidden)) .nav-item.active{background:#DD9529;color:#0C1E36}
+body:has(#app-shell:not(.hidden)) .sidebar-account-actions{border-top-color:#263D58}
+body:has(#app-shell:not(.hidden)) .sidebar-account-actions .button.ghost{border-color:#D9A354;color:#FFFFFF}
+body:has(#app-shell:not(.hidden)) .topbar{background:rgba(255,249,240,.93)}
+body:has(#app-shell:not(.hidden)) .metric-card.blue,body:has(#app-shell:not(.hidden)) .metric-card.pink{background:var(--surface-soft)}
+body:has(#app-shell:not(.hidden)) .metric-card.green{background:var(--blue-soft)}
+body:has(#app-shell:not(.hidden)) .metric-card.orange{background:var(--card)}
+body:has(#app-shell:not(.hidden)) .data-table th{background:var(--surface-soft)}
+body:has(#app-shell:not(.hidden)) .data-table tr:hover td{background:#FFF9F0}
+body:has(#app-shell:not(.hidden)) .status-delivered{background:#F7E4BF;color:#80520C}
+body:has(#app-shell:not(.hidden)) .status-in-transit,body:has(#app-shell:not(.hidden)) .status-out-for-delivery,body:has(#app-shell:not(.hidden)) .status-picked-up{background:#F9EACD;color:#B9791F}
+body:has(#app-shell:not(.hidden)) .status-booked,body:has(#app-shell:not(.hidden)) .status-confirmed{background:var(--surface-soft);color:#0C1E36}
+body:has(#app-shell:not(.hidden)) .status-delayed,body:has(#app-shell:not(.hidden)) .status-unavailable{background:#FFF1C6;color:#8C690F}
+body:has(#app-shell:not(.hidden)) .callout,body:has(#app-shell:not(.hidden)) .price-summary{background:var(--surface-soft);color:#0C1E36}
+body:has(#app-shell:not(.hidden)) .timeline-dot{border-color:#F9EACD}
+body:has(#app-shell:not(.hidden)) .bar-track{background:var(--surface-soft)}
+body:has(#app-shell:not(.hidden)) .address-suggestion:hover{background:var(--surface-soft);color:#0C1E36}
+body:has(#app-shell:not(.hidden)) .modal-backdrop{background:rgba(12,30,54,.48)}
+#auth-shell:has(#login-form:not(.hidden)){background:#FFF9F0;color:#0C1E36;--text:#0C1E36;--muted:#746347;--border:#EBDDC5;--primary:#DD9529;--failed:#963C5A}
+#auth-shell:has(#login-form:not(.hidden)) .auth-brand-panel{background:linear-gradient(145deg,#0C1E36 0%,#102943 65%,#173651 100%)}
+#auth-shell:has(#login-form:not(.hidden)) .auth-brand-panel h1 span{color:#DD9529}
+#auth-shell:has(#login-form:not(.hidden)) .auth-form-panel{background:#FFF9F0}
+#auth-shell:has(#login-form:not(.hidden)) .auth-form-wrap{border-color:#EBDDC5;box-shadow:0 16px 40px rgba(12,30,54,.08)}
+#auth-shell:has(#login-form:not(.hidden)) .button.primary{background:#DD9529;color:#0C1E36}
+#auth-shell:has(#login-form:not(.hidden)) .button.primary:hover{background:#B9791F;color:#FFFFFF}
+#auth-shell:has(#login-form:not(.hidden)) .auth-switch button{color:#B9791F}
+#auth-shell:has(#login-form:not(.hidden)) input:focus{border-color:#DD9529;box-shadow:0 0 0 3px rgba(221,149,41,.2)}
