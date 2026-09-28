@@ -49,7 +49,7 @@ body:has(#app-shell:not(.hidden)) .button.secondary{background:var(--surface-sof
 body:has(#app-shell:not(.hidden)) .button.ghost,body:has(#app-shell:not(.hidden)) .icon-button,body:has(#app-shell:not(.hidden)) .menu-button{color:var(--navy)}
 body:has(#app-shell:not(.hidden)) .button.danger{background:#F7E9ED;color:var(--failed)}
 body:has(#app-shell:not(.hidden)) .sidebar{background:var(--navy);border-right-color:#253354;color:#FFFFFF}
-body:has(#app-shell:not(.hidden)) .sidebar-logo{filter:brightness(0) invert(1)}
+body:has(#app-shell:not(.hidden)) .sidebar-logo{width:190px;max-width:100%;height:auto;filter:none}
 body:has(#app-shell:not(.hidden)) .sidebar-brand small,body:has(#app-shell:not(.hidden)) .sidebar-footer{color:#B6C3D7}
 body:has(#app-shell:not(.hidden)) .nav-label{color:#A2B1CA}
 body:has(#app-shell:not(.hidden)) .nav-item{color:#B6C3D7}
