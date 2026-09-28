@@ -82,3 +82,20 @@ body:has(#app-shell:not(.hidden)) .auth-error,body:has(#app-shell:not(.hidden)) 
 body:has(#app-shell:not(.hidden)) .modal-backdrop{background:rgba(11,22,61,.46)}
 body:has(#app-shell:not(.hidden)) .modal-card{box-shadow:0 24px 70px rgba(11,22,61,.24)}
 @media(max-width:720px){body:has(#app-shell:not(.hidden)) .sidebar-overlay{background:rgba(11,22,61,.35)}}
+
+/* Sign-in only: restrained navy gradient, sage accents and fine fracture lines. */
+.signin-brand-logo{display:none}
+#auth-shell:has(#login-form:not(.hidden)){background:#DDE9DF;color:#0B163D;--text:#0B163D;--muted:#637188;--border:#D6DFEA;--primary:#31568B;--failed:#963C5A}
+#auth-shell:has(#login-form:not(.hidden)) .auth-brand-panel{background:linear-gradient(145deg,#0B163D 0%,#182D4B 65%,#253D53 100%)}
+#auth-shell:has(#login-form:not(.hidden)) .auth-brand-panel:after{inset:0;width:auto;height:auto;border:0;border-radius:0;box-shadow:none;background:url('../assets/auth-fractures.svg') center/cover no-repeat;pointer-events:none}
+#auth-shell:has(#login-form:not(.hidden)) .signin-brand-logo{display:block;position:absolute;top:38px;left:clamp(32px,5vw,74px);width:230px;max-width:65%;height:auto;z-index:1}
+#auth-shell:has(#login-form:not(.hidden)) .auth-brand-panel h1{position:relative;z-index:1}
+#auth-shell:has(#login-form:not(.hidden)) .auth-brand-panel h1 span{color:#AFC5B2}
+#auth-shell:has(#login-form:not(.hidden)) .auth-panel-logo{display:none}
+#auth-shell:has(#login-form:not(.hidden)) .auth-form-panel{background:#DDE9DF}
+#auth-shell:has(#login-form:not(.hidden)) .auth-form-wrap{background:#FFFFFF;padding:30px;border:1px solid #D6DFEA;border-radius:14px;box-shadow:0 16px 40px rgba(11,22,61,.07)}
+#auth-shell:has(#login-form:not(.hidden)) .button.primary{background:#6F876F}
+#auth-shell:has(#login-form:not(.hidden)) .button.primary:hover{background:#586F59}
+#auth-shell:has(#login-form:not(.hidden)) .auth-switch button{color:#586F59}
+#auth-shell:has(#login-form:not(.hidden)) input:focus{border-color:#6F876F;box-shadow:0 0 0 3px rgba(111,135,111,.16)}
+@media(max-width:720px){#auth-shell:has(#login-form:not(.hidden)) .auth-form-wrap{padding:24px}#auth-shell:has(#login-form:not(.hidden)) .mobile-brand{margin-bottom:24px}}
