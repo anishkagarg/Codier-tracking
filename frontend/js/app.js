@@ -67,13 +67,13 @@ async function startShipmentPayment(shipmentId, resultNode){
 }
 function booking(){
   setTitle("New booking");
-  $("#view").innerHTML='<div class="section-heading"><div><h2>Send a parcel with confidence.</h2><p>Enter the shipment details and we will prepare everything for delivery.</p></div></div><form id="booking-form" class="panel"><div class="callout">Your shipping price is calculated from the current backend rate before you place the order.</div><h3>Sender details</h3>'+locationFields("sender","Sender")+'<h3 style="margin-top:28px">Receiver details</h3>'+locationFields("receiver","Receiver")+'<h3 style="margin-top:28px">Parcel details</h3><div class="form-grid three"><div class="field"><label>Weight (kg)<input name="weight_kg" type="number" step="0.001" min="0.001" required></label></div><div class="field"><label>Length (cm)<input name="length_cm" type="number" step="0.01" min="0.01" required></label></div><div class="field"><label>Width (cm)<input name="width_cm" type="number" step="0.01" min="0.01" required></label></div><div class="field"><label>Height (cm)<input name="height_cm" type="number" step="0.01" min="0.01" required></label></div><div class="field"><label>Delivery type<select name="delivery_type_code"><option value="STANDARD">Standard</option><option value="EXPRESS">Express</option><option value="SAME_DAY">Same day</option></select></label></div><div class="field" style="display:flex;align-items:end;gap:20px"><label style="display:flex;align-items:center;gap:8px"><input name="fragile" type="checkbox" style="width:auto"> Fragile</label><label style="display:flex;align-items:center;gap:8px"><input name="priority" type="checkbox" style="width:auto"> Priority</label></div></div><section class="price-summary" aria-live="polite"><strong>Shipping price</strong><div id="booking-price">Enter the parcel weight to calculate your price.</div></section><fieldset class="payment-choice"><legend>Payment mode</legend><label><input type="radio" name="payment_mode" value="CASH" required> Cash on delivery</label><label><input type="radio" name="payment_mode" value="RAZORPAY" required> Pay online with Razorpay</label></fieldset><div class="form-actions"><button class="button primary" type="submit" disabled>Place order <span>→</span></button></div><div id="booking-result"></div></form>';
+  $("#view").innerHTML='<form id="booking-form" class="panel"><h3>Sender details</h3>'+locationFields("sender","Sender")+'<h3 style="margin-top:28px">Receiver details</h3>'+locationFields("receiver","Receiver")+'<h3 style="margin-top:28px">Parcel details</h3><div class="form-grid three"><div class="field"><label>Weight (kg)<input name="weight_kg" type="number" step="0.001" min="0.001" required></label></div><div class="field"><label>Length (cm)<input name="length_cm" type="number" step="0.01" min="0.01" required></label></div><div class="field"><label>Width (cm)<input name="width_cm" type="number" step="0.01" min="0.01" required></label></div><div class="field"><label>Height (cm)<input name="height_cm" type="number" step="0.01" min="0.01" required></label></div><div class="field" style="display:flex;align-items:end;gap:20px"><label style="display:flex;align-items:center;gap:8px"><input name="fragile" type="checkbox" style="width:auto"> Fragile</label><label style="display:flex;align-items:center;gap:8px"><input name="priority" type="checkbox" style="width:auto"> Priority</label></div></div><section class="price-summary" aria-live="polite"><strong>Estimated price</strong><div id="booking-price">Enter the parcel weight to calculate your price.</div></section><fieldset class="payment-choice"><legend>Payment mode</legend><label><input type="radio" name="payment_mode" value="CASH" required> Cash on delivery</label><label><input type="radio" name="payment_mode" value="RAZORPAY" required> Pay online with Razorpay</label></fieldset><div class="form-actions"><button class="button primary" type="submit" disabled>Place order <span>→</span></button></div><div id="booking-result"></div></form>';
   wireLocationFields("sender");
   wireLocationFields("receiver");
   const form=$("#booking-form");
   const submit=form.querySelector('button[type="submit"]');
   const weightInput=form.elements.weight_kg;
-  const deliveryInput=form.elements.delivery_type_code;
+  const delivery="STANDARD";
   api("/api/payments/options").then(options=>{
     const online=form.querySelector('[name="payment_mode"][value="RAZORPAY"]');
     if(!online)return;
@@ -88,7 +88,6 @@ function booking(){
   let quoteTimer;
   async function refreshQuote(){
     const weight=Number(weightInput.value);
-    const delivery=deliveryInput.value;
     const sequence=++quoteSequence;
     if(!Number.isFinite(weight)||weight<=0){quote=null;$("#booking-price").textContent="Enter the parcel weight to calculate your price.";submit.disabled=true;return}
     $("#booking-price").textContent="Updating price…";
@@ -107,16 +106,15 @@ function booking(){
     }
   }
   weightInput.addEventListener("input",()=>{clearTimeout(quoteTimer);quoteTimer=setTimeout(refreshQuote,250)});
-  deliveryInput.addEventListener("change",refreshQuote);
   form.onsubmit=async(event)=>{
     event.preventDefault();
     const currentWeight=Number(weightInput.value);
-    if(!quote||quote.weight!==currentWeight||quote.delivery!==deliveryInput.value){await refreshQuote();if(!quote||quote.weight!==currentWeight||quote.delivery!==deliveryInput.value)return}
+    if(!quote||quote.weight!==currentWeight||quote.delivery!==delivery){await refreshQuote();if(!quote||quote.weight!==currentWeight||quote.delivery!==delivery)return}
     const data=new FormData(form);
     submit.disabled=true;
     const value=(name)=>String(data.get(name)||"").trim();
     const address=(prefix)=>({line1:[value(prefix+"_house_number"),value(prefix+"_line1")].filter(Boolean).join(", "),city:value(prefix+"_city"),state:value(prefix+"_state"),postal_code:value(prefix+"_postal_code"),country:"IN",contact_name:value(prefix+"_contact_name"),contact_phone:value(prefix+"_contact_phone")});
-    const payload={sender:address("sender"),receiver:address("receiver"),weight_kg:currentWeight,length_cm:Number(value("length_cm")),width_cm:Number(value("width_cm")),height_cm:Number(value("height_cm")),delivery_type_code:deliveryInput.value,destination_zone:"LOCAL",payment_mode:value("payment_mode"),fragile:data.get("fragile")==="on",priority:data.get("priority")==="on"};
+    const payload={sender:address("sender"),receiver:address("receiver"),weight_kg:currentWeight,length_cm:Number(value("length_cm")),width_cm:Number(value("width_cm")),height_cm:Number(value("height_cm")),delivery_type_code:delivery,destination_zone:"LOCAL",payment_mode:value("payment_mode"),fragile:data.get("fragile")==="on",priority:data.get("priority")==="on"};
     try{
       const shipment=await api("/api/shipments",{method:"POST",body:JSON.stringify(payload)});
       const online=payload.payment_mode==="RAZORPAY";
