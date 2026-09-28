@@ -10,6 +10,7 @@ def test_app_imports():
     assert "/api/shipments/{shipment_id}/assessment" in paths
     assert "/api/reports/delays" in paths
     assert "/api/payments/demo/complete" in paths
+    assert "/api/admin/staff" in paths
 
 
 def test_booking_accepts_no_charge_demo_payment_mode():
@@ -33,3 +34,18 @@ def test_booking_accepts_no_charge_demo_payment_mode():
         payment_mode="DEMO",
     )
     assert booking.payment_mode == "DEMO"
+
+
+def test_staff_account_input_supports_warehouse_officer():
+    from app.main import StaffAccountIn
+
+    staff = StaffAccountIn(
+        name="Warehouse Demo",
+        email="warehouse.demo@example.test",
+        password="WarehouseDemo123!",
+        phone="9000000000",
+        employee_id="EMP-WH-DEMO",
+        department_code="WAREHOUSE",
+        role_code="WAREHOUSE_OFFICER",
+    )
+    assert staff.role_code == "WAREHOUSE_OFFICER"

@@ -21,7 +21,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from typing import Literal
 
 from .db import engine, get_db
-from .models import Address, AssignmentStatus, BookingIdempotency, Complaint, Customer, DeliveryType, Hub, Invoice, LocationUpdate, Notification, Payment, PricingRule, Refund, Route, Shipment, ShipmentAssignment, ShipmentStatusHistory, Staff, StaffRole, User, Vehicle, WarehouseScan
+from .models import Address, AssignmentStatus, BookingIdempotency, Complaint, Customer, DeliveryType, Department, Hub, Invoice, LocationUpdate, Notification, Payment, PricingRule, Refund, Route, Shipment, ShipmentAssignment, ShipmentStatusHistory, Staff, StaffRole, User, Vehicle, WarehouseScan
 from .security import hash_password, verify_password
 from .services import add_location_and_history, assign_task, auto_assign_task, create_booking, delivery_assessment, haversine_km, latest_gps_location, new_id, optimize_route, price_for_weight, public_tracking, request_delivery_otp, transition_assignment, verify_delivery
 
@@ -54,6 +54,14 @@ class AuthIn(BaseModel):
 class RegisterIn(AuthIn):
     name: str = Field(min_length=2, max_length=120)
     phone: str = Field(min_length=7, max_length=30)
+
+
+class StaffAccountIn(AuthIn):
+    name: str = Field(min_length=2, max_length=120)
+    phone: str = Field(min_length=7, max_length=30)
+    employee_id: str = Field(min_length=2, max_length=30)
+    department_code: str = Field(min_length=2, max_length=30)
+    role_code: str = Field(min_length=2, max_length=30)
 
 
 def external_json(url: str, payload: dict | None = None):
@@ -338,6 +346,95 @@ def login(payload: AuthIn, request: Request, db: Session = Depends(get_db)):
 def logout(request: Request):
     request.session.clear()
     return {"logged_out": True}
+
+
+@app.get("/api/admin/staff")
+def admin_staff(request: Request, db: Session = Depends(get_db)):
+    """Give administrators a safe UI-backed way to provision staff logins."""
+    required_staff(request, db, {"ADMINISTRATOR"})
+    rows = db.execute(
+        select(Staff, User)
+        .join(User, Staff.user_id == User.user_id)
+        .order_by(Staff.employee_id)
+    ).all()
+    return {
+        "staff": [
+            {
+                "staff_id": staff.staff_id,
+                "employee_id": staff.employee_id,
+                "name": user.name,
+                "email": user.email,
+                "phone": user.phone,
+                "department_code": staff.department_code,
+                "role_code": staff.role_code,
+                "active": bool(staff.active and user.active),
+            }
+            for staff, user in rows
+        ],
+        "roles": [
+            {"code": role.role_code, "name": role.display_name}
+            for role in db.scalars(select(StaffRole).order_by(StaffRole.display_name)).all()
+        ],
+        "departments": [
+            {"code": department.department_code, "name": department.display_name}
+            for department in db.scalars(select(Department).order_by(Department.display_name)).all()
+        ],
+    }
+
+
+@app.post("/api/admin/staff", status_code=201)
+def create_staff_account(payload: StaffAccountIn, request: Request, db: Session = Depends(get_db)):
+    """Create a separate staff login without weakening customer self-registration."""
+    required_staff(request, db, {"ADMINISTRATOR"})
+    email = str(payload.email).lower().strip()
+    employee_id = payload.employee_id.strip()
+    role_code = payload.role_code.strip().upper()
+    department_code = payload.department_code.strip().upper()
+    if db.scalar(select(User).where(User.email == email)):
+        raise HTTPException(409, "An account with that email already exists")
+    if db.scalar(select(Staff).where(Staff.employee_id == employee_id)):
+        raise HTTPException(409, "That employee ID is already in use")
+    if not db.get(StaffRole, role_code):
+        raise HTTPException(400, "Select a valid staff role")
+    if not db.get(Department, department_code):
+        raise HTTPException(400, "Select a valid department")
+    now = datetime.now(timezone.utc)
+    user = User(
+        user_id=new_id(db, User, "user_id", "OBUUSR"),
+        name=payload.name.strip(),
+        email=email,
+        phone=payload.phone.strip(),
+        password_hash=hash_password(payload.password),
+        active=True,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(user)
+    db.flush()
+    staff = Staff(
+        staff_id=new_id(db, Staff, "staff_id", "OBUSTF"),
+        employee_id=employee_id,
+        department_code=department_code,
+        role_code=role_code,
+        active=True,
+        user_id=user.user_id,
+    )
+    try:
+        db.add(staff)
+        db.commit()
+        db.refresh(staff)
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(409, "The staff account conflicts with an existing record") from exc
+    return {
+        "staff_id": staff.staff_id,
+        "employee_id": staff.employee_id,
+        "name": user.name,
+        "email": user.email,
+        "department_code": staff.department_code,
+        "role_code": staff.role_code,
+        "active": True,
+    }
 
 
 @app.delete("/api/auth/account")
@@ -906,7 +1003,7 @@ def create_warehouse_scan(payload: WarehouseScanIn, request: Request, db: Sessio
     except (ValueError, IntegrityError) as exc:
         db.rollback()
         raise HTTPException(status_code=409, detail=str(exc))
-    return {"scan_id": row.scan_id, "shipment_id": row.shipment_id, "hub_id": row.hub_id, "scan_type": row.scan_type, "scanned_at": row.scanned_at.isoformat()}
+    return {"scan_id": row.scan_id, "shipment_id": row.shipment_id, "tracking_id": shipment.tracking_id, "hub_id": row.hub_id, "scan_type": row.scan_type, "scanned_at": row.scanned_at.isoformat(), "shipment_status": shipment.current_status, "next_task": "DELIVERY"}
 
 
 @app.get("/api/finance/summary")

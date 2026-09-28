@@ -9,8 +9,9 @@
 | P7 manager assignment | Assignments | `GET /api/operations/lookups`, `POST /api/assignments` |
 | T1/T2 location and history | Track shipment/private shipment detail | API timeline and OBU location IDs |
 | T4 reports | Reports | `GET /api/reports/summary` |
-| W1/W5 warehouse | Warehouse | `GET /api/warehouse/scans` |
+| W1/W5 warehouse | Warehouse | Visible pickup → receipt → delivery hand-off using `GET/POST /api/warehouse/scans` |
 | A1–A5 accounts | Finance | `GET /api/finance/summary` |
 | Customer notifications | Notifications | `GET /api/notifications`, `POST /api/notifications/{id}/read` |
 | Customer complaints / staff handling | Support & complaints | `GET/POST /api/complaints`, `PATCH /api/complaints/{id}` |
 | RBAC | Role-aware navigation and API errors | `/api/auth/me` plus backend role gates |
+| Staff provisioning | Staff accounts (administrator only) | `GET/POST /api/admin/staff` creates role-specific logins without public role escalation |

@@ -10,6 +10,8 @@ All JSON endpoints use a signed session cookie. Login first, then send the cooki
 | POST | `/api/auth/login` | Public | Start session |
 | POST | `/api/auth/logout` | Authenticated | End session |
 | GET | `/api/auth/me` | Public | Current account projection |
+| GET | `/api/admin/staff` | Administrator | List staff accounts, roles and departments |
+| POST | `/api/admin/staff` | Administrator | Create a role-specific staff login |
 | GET | `/api/notifications` | Authenticated | Customer notifications or staff notification overview |
 | POST | `/api/notifications/{id}/read` | Owner/staff | Mark an in-app notification as read |
 | GET | `/api/complaints` | Customer/support staff | List owned or operational complaints |
@@ -69,6 +71,8 @@ All JSON endpoints use a signed session cookie. Login first, then send the cooki
 The `Idempotency-Key` header must remain the same for retries of one booking attempt. Reusing it returns HTTP 409 with the original tracking ID instead of creating another shipment. The response includes a database-generated OBU tracking ID, charge, invoice total, current status `BOOKED`, and the initial status history event. `payment_mode` is `CASH` (cash on delivery; the amount due is derived from the shipping charge) or `RAZORPAY` (online checkout). The customer-facing form does not submit a COD amount or parcel type.
 
 New bookings create a pickup assignment. Completing pickup creates a warehouse assignment; recording its `RECEIVED` scan moves the shipment to `IN_TRANSIT` and creates a delivery assignment. The delivery agent starts delivery, requests an OTP (stored in PostgreSQL and shown in the customer's Notifications), and verifies it at handover. Cash bookings require explicit cash-collection confirmation before delivery; the payment and invoice are then updated together. Existing unassigned bookings are not silently backfilled.
+
+Staff accounts are not created through public registration. An authenticated administrator creates a separate login through `POST /api/admin/staff`, choosing an existing department and staff role. This allows warehouse, pickup and delivery workspaces to remain usable without allowing public users to grant themselves staff access.
 
 Razorpay test mode requires configured `rzp_test_` keys. Without them, online checkout is disabled; a local simulation cannot mark an invoice paid. Verification checks the Checkout signature and fetches the Razorpay order and payment to confirm the invoice receipt, amount, currency, and captured status before updating payment records.
 

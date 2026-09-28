@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from starlette.requests import Request
 
 from app.db import engine
-from app.main import AddressIn, BookingIn, DeliveryIn, WarehouseScanIn, book_shipment, create_otp, create_warehouse_scan, deliver, pickup_complete, start_delivery
+from app.main import AddressIn, BookingIn, DeliveryIn, StaffAccountIn, WarehouseScanIn, admin_staff, book_shipment, create_otp, create_staff_account, create_warehouse_scan, deliver, pickup_complete, start_delivery
 from app.models import Customer, Hub, Invoice, Notification, Payment, Shipment, ShipmentAssignment, Staff, User
 
 
@@ -58,7 +58,10 @@ def test_booking_passes_once_through_pickup_warehouse_and_delivery():
             assert db.get(Staff, warehouse.staff_id).role_code == "WAREHOUSE_OFFICER"
 
             hub = db.scalar(select(Hub).where(Hub.active.is_(True)))
-            create_warehouse_scan(WarehouseScanIn(shipment_id=shipment.shipment_id, hub_id=hub.hub_id, scan_type="RECEIVED"), request_for(db.get(Staff, warehouse.staff_id).user_id), db)
+            receipt = create_warehouse_scan(WarehouseScanIn(shipment_id=shipment.shipment_id, hub_id=hub.hub_id, scan_type="RECEIVED"), request_for(db.get(Staff, warehouse.staff_id).user_id), db)
+            assert receipt["tracking_id"] == shipment.tracking_id
+            assert receipt["shipment_status"] == "IN_TRANSIT"
+            assert receipt["next_task"] == "DELIVERY"
             db.refresh(shipment)
             assert shipment.current_status == "IN_TRANSIT"
             delivery = db.scalar(select(ShipmentAssignment).where(ShipmentAssignment.shipment_id == shipment.shipment_id, ShipmentAssignment.task_type_code == "DELIVERY"))
@@ -83,6 +86,40 @@ def test_booking_passes_once_through_pickup_warehouse_and_delivery():
             assert db.scalar(select(ShipmentAssignment).where(ShipmentAssignment.shipment_id == shipment.shipment_id, ShipmentAssignment.task_type_code == "PICKUP")).status_code == "COMPLETED"
             assert db.scalar(select(ShipmentAssignment).where(ShipmentAssignment.shipment_id == shipment.shipment_id, ShipmentAssignment.task_type_code == "WAREHOUSE")).status_code == "COMPLETED"
             assert db.scalar(select(ShipmentAssignment).where(ShipmentAssignment.shipment_id == shipment.shipment_id, ShipmentAssignment.task_type_code == "DELIVERY")).status_code == "COMPLETED"
+        finally:
+            db.close()
+            outer.rollback()
+
+
+def test_administrator_can_provision_a_warehouse_officer_login():
+    with engine.connect() as connection:
+        outer = connection.begin()
+        db = Session(bind=connection, join_transaction_mode="create_savepoint")
+        try:
+            administrator = db.scalar(select(Staff).where(Staff.role_code == "ADMINISTRATOR", Staff.active.is_(True)))
+            assert administrator is not None
+            suffix = uuid4().hex[:8]
+            created = create_staff_account(
+                StaffAccountIn(
+                    name="Warehouse Workflow Test",
+                    email=f"warehouse-{suffix}@example.test",
+                    password="WarehouseTest123!",
+                    phone="9000000000",
+                    employee_id=f"WH-{suffix}",
+                    department_code="WAREHOUSE",
+                    role_code="WAREHOUSE_OFFICER",
+                ),
+                request_for(administrator.user_id),
+                db,
+            )
+            assert created["role_code"] == "WAREHOUSE_OFFICER"
+            listing = admin_staff(request_for(administrator.user_id), db)
+            assert any(row["staff_id"] == created["staff_id"] for row in listing["staff"])
+            customer_user = db.scalar(select(User).join(Customer, Customer.user_id == User.user_id).where(User.active.is_(True)).limit(1))
+            from fastapi import HTTPException
+            with pytest.raises(HTTPException) as forbidden:
+                admin_staff(request_for(customer_user.user_id), db)
+            assert forbidden.value.status_code == 403
         finally:
             db.close()
             outer.rollback()

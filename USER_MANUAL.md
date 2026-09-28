@@ -25,6 +25,30 @@
 - **Finance** displays read-only financial totals.
 - **Support & complaints** allows authorized support staff to move complaints through OPEN, IN_PROGRESS, RESOLVED or CLOSED.
 
+## Administrator: create a warehouse officer login
+
+1. Sign in with an **Administrator** account.
+2. Open **Staff accounts**.
+3. Enter the employee's name, work email, phone and employee ID.
+4. Select the warehouse department and **Warehouse Officer** role.
+5. Set a temporary password and select **Create staff login**.
+6. Sign out. The warehouse officer can now sign in with the new work email and temporary password.
+
+Customer registration deliberately creates only customer accounts. Staff roles can be issued only by an authenticated administrator.
+
+## Warehouse officer workflow
+
+1. A customer places an order; OptiGo creates a pickup task.
+2. The assigned pickup agent selects **Complete pickup** from **My tasks**.
+3. OptiGo changes the shipment to `PICKED_UP` and creates a warehouse assignment.
+4. The warehouse officer signs in and opens **Warehouse**.
+5. Under **Parcels awaiting receipt**, select the parcel and receiving hub.
+6. Select **Confirm receipt**.
+7. OptiGo records the warehouse scan, changes the shipment to `IN_TRANSIT`, completes the warehouse task and creates a delivery task.
+8. The receipt appears under **Recent warehouse receipts**.
+
+If the Warehouse page says that no parcel is ready, the pickup task has not been completed yet. An administrator or operations manager can inspect **Team tasks**.
+
 ## Public tracking privacy
 
 Tracking by ID exposes shipment movement, status history and ETA assessment only. It does not expose customer contacts, OTP values, proof references, staff identities or finance records.
