@@ -65,9 +65,16 @@ async function startShipmentPayment(shipmentId, resultNode){
     await loadRazorpayCheckout(order,shipmentId,resultNode);
   }catch(err){resultNode.innerHTML='<div class="error-text">'+esc(err.message)+'</div>'}
 }
+async function completeDemoPayment(shipmentId, resultNode){
+  resultNode.innerHTML='<div class="muted">Completing the demo checkout…</div>';
+  try{
+    const demo=await api("/api/payments/demo/complete",{method:"POST",body:JSON.stringify({shipment_id:shipmentId})});
+    resultNode.innerHTML='<div class="result-card"><h4>Demo payment completed</h4><div>No money was charged, transferred, or recorded.</div><div class="muted">Invoice '+esc(demo.invoice_no)+' remains '+esc(demo.payment_status)+'.</div></div>';
+  }catch(err){resultNode.innerHTML='<div class="error-text">'+esc(err.message)+'</div>'}
+}
 function booking(){
   setTitle("New booking");
-  $("#view").innerHTML='<form id="booking-form" class="panel"><h3>Sender details</h3>'+locationFields("sender","Sender")+'<h3 style="margin-top:28px">Receiver details</h3>'+locationFields("receiver","Receiver")+'<h3 style="margin-top:28px">Parcel details</h3><div class="form-grid three"><div class="field"><label>Weight (kg)<input name="weight_kg" type="number" step="0.001" min="0.001" required></label></div><div class="field"><label>Length (cm)<input name="length_cm" type="number" step="0.01" min="0.01" required></label></div><div class="field"><label>Width (cm)<input name="width_cm" type="number" step="0.01" min="0.01" required></label></div><div class="field"><label>Height (cm)<input name="height_cm" type="number" step="0.01" min="0.01" required></label></div><div class="field" style="display:flex;align-items:end;gap:20px"><label style="display:flex;align-items:center;gap:8px"><input name="fragile" type="checkbox" style="width:auto"> Fragile</label><label style="display:flex;align-items:center;gap:8px"><input name="priority" type="checkbox" style="width:auto"> Priority</label></div></div><section class="price-summary" aria-live="polite"><strong>Estimated price</strong><div id="booking-price">Enter the parcel weight to calculate your price.</div></section><fieldset class="payment-choice"><legend>Payment mode</legend><label><input type="radio" name="payment_mode" value="CASH" required> Cash on delivery</label><label><input type="radio" name="payment_mode" value="RAZORPAY" required> Pay online with Razorpay</label></fieldset><div class="form-actions"><button class="button primary" type="submit" disabled>Place order <span>→</span></button></div><div id="booking-result"></div></form>';
+  $("#view").innerHTML='<form id="booking-form" class="panel"><h3>Sender details</h3>'+locationFields("sender","Sender")+'<h3 style="margin-top:28px">Receiver details</h3>'+locationFields("receiver","Receiver")+'<h3 style="margin-top:28px">Parcel details</h3><div class="form-grid three"><div class="field"><label>Weight (kg)<input name="weight_kg" type="number" step="0.001" min="0.001" required></label></div><div class="field"><label>Length (cm)<input name="length_cm" type="number" step="0.01" min="0.01" required></label></div><div class="field"><label>Width (cm)<input name="width_cm" type="number" step="0.01" min="0.01" required></label></div><div class="field"><label>Height (cm)<input name="height_cm" type="number" step="0.01" min="0.01" required></label></div><div class="field" style="display:flex;align-items:end;gap:20px"><label style="display:flex;align-items:center;gap:8px"><input name="fragile" type="checkbox" style="width:auto"> Fragile</label><label style="display:flex;align-items:center;gap:8px"><input name="priority" type="checkbox" style="width:auto"> Priority</label></div></div><section class="price-summary" aria-live="polite"><strong>Estimated price</strong><div id="booking-price">Enter the parcel weight to calculate your price.</div></section><fieldset class="payment-choice"><legend>Payment mode</legend><label><input type="radio" name="payment_mode" value="CASH" required> Cash on delivery</label><label><input type="radio" name="payment_mode" value="DEMO" required> Demo online payment (no charge)</label></fieldset><div class="form-actions"><button class="button primary" type="submit" disabled>Place order <span>→</span></button></div><div id="booking-result"></div></form>';
   wireLocationFields("sender");
   wireLocationFields("receiver");
   const form=$("#booking-form");
@@ -75,13 +82,13 @@ function booking(){
   const weightInput=form.elements.weight_kg;
   const delivery="STANDARD";
   api("/api/payments/options").then(options=>{
-    const online=form.querySelector('[name="payment_mode"][value="RAZORPAY"]');
-    if(!online)return;
-    online.disabled=!options.razorpay_available;
-    if(!options.razorpay_available)online.parentElement.append(" (test checkout unavailable; use cash)");
+    const demo=form.querySelector('[name="payment_mode"][value="DEMO"]');
+    if(!demo)return;
+    demo.disabled=!options.demo_online_available;
+    if(!options.demo_online_available)demo.parentElement.append(" (demo checkout unavailable; use cash)");
   }).catch(()=>{
-    const online=form.querySelector('[name="payment_mode"][value="RAZORPAY"]');
-    if(online)online.disabled=true;
+    const demo=form.querySelector('[name="payment_mode"][value="DEMO"]');
+    if(demo)demo.disabled=true;
   });
   let quote=null;
   let quoteSequence=0;
@@ -117,14 +124,14 @@ function booking(){
     const payload={sender:address("sender"),receiver:address("receiver"),weight_kg:currentWeight,length_cm:Number(value("length_cm")),width_cm:Number(value("width_cm")),height_cm:Number(value("height_cm")),delivery_type_code:delivery,destination_zone:"LOCAL",payment_mode:value("payment_mode"),fragile:data.get("fragile")==="on",priority:data.get("priority")==="on"};
     try{
       const shipment=await api("/api/shipments",{method:"POST",body:JSON.stringify(payload)});
-      const online=payload.payment_mode==="RAZORPAY";
-      $("#booking-result").innerHTML='<div class="result-card"><h4>Order placed successfully</h4><div>Your tracking ID is <strong>'+esc(shipment.tracking_id)+'</strong>.</div><div>Shipping price: <strong>'+money(shipment.charge,shipment.currency)+'</strong></div><div class="muted">Expected delivery: '+formatDate(shipment.expected_delivery)+'</div><div>Payment mode: '+(online?"Razorpay online":"Cash on delivery")+'</div>'+(online?'<button type="button" class="button primary" id="pay-booking-online">Pay online with Razorpay</button><div id="booking-payment-result"></div>':'<div class="muted">Pay the shipping charge in cash when the parcel is delivered.</div>')+'</div>';
+      const demo=payload.payment_mode==="DEMO";
+      $("#booking-result").innerHTML='<div class="result-card"><h4>Order placed successfully</h4><div>Your tracking ID is <strong>'+esc(shipment.tracking_id)+'</strong>.</div><div>Shipping price: <strong>'+money(shipment.charge,shipment.currency)+'</strong></div><div class="muted">Expected delivery: '+formatDate(shipment.expected_delivery)+'</div><div>Payment mode: '+(demo?"Demo online payment":"Cash on delivery")+'</div>'+(demo?'<button type="button" class="button primary" id="complete-demo-payment">Complete demo payment</button><div class="muted">No money will be charged.</div><div id="booking-payment-result"></div>':'<div class="muted">Pay the shipping charge in cash when the parcel is delivered.</div>')+'</div>';
       form.reset();
       quote=null;
       $("#booking-price").textContent="Enter the parcel weight to calculate your price.";
       submit.disabled=true;
       toast("Order placed successfully");
-      if(online)$("#pay-booking-online").onclick=()=>startShipmentPayment(shipment.shipment_id,$("#booking-payment-result"));
+      if(demo)$("#complete-demo-payment").onclick=()=>completeDemoPayment(shipment.shipment_id,$("#booking-payment-result"));
     }catch(err){
       $("#booking-result").innerHTML='<div class="error-text">'+esc(err.message)+'</div>';
       submit.disabled=false;
@@ -181,9 +188,9 @@ async function routePlanner(){setTitle("Route planner");const sample='[{"stop_id
 async function payments(){
   setTitle("Payments");
   const [all,options]=await Promise.all([api("/api/shipments"),api("/api/payments/options")]);
-  const pending=all.filter(s=>s.payment_mode==="RAZORPAY"&&s.payment_status!=="PAID");
-  $("#view").innerHTML=`<div class="section-heading"><div><h2>Online payments</h2><p>Complete payment for a shipment awaiting Razorpay checkout.</p></div></div>${!options.razorpay_available?`<div class="panel empty-state"><strong>Razorpay test checkout is not configured.</strong><span>Cash bookings still work. Online checkout will appear after test keys are configured.</span></div>`:pending.length?`<section class="panel"><form id="payment-form" class="form-grid"><div class="field" style="grid-column:1/-1"><label>Shipment<select name="shipment_id" required>${pending.map(s=>`<option value="${esc(s.shipment_id)}">${esc(s.tracking_id)} · ${money(s.charge,s.currency)}</option>`).join("")}</select></label></div><div class="form-actions" style="grid-column:1/-1"><button class="button primary">Pay with Razorpay <span>→</span></button></div></form><div id="payment-result"></div></section>`:`<div class="panel empty-state"><strong>No online payment is due.</strong></div>`}`;
-  if($("#payment-form"))$("#payment-form").onsubmit=(e)=>{e.preventDefault();startShipmentPayment(new FormData(e.currentTarget).get("shipment_id"),$("#payment-result"))};
+  const pending=all.filter(s=>s.payment_mode==="DEMO"&&s.payment_status!=="PAID");
+  $("#view").innerHTML=`<div class="section-heading"><div><h2>Demo online payments</h2><p>Try the checkout flow without a payment provider or a real charge.</p></div></div>${!options.demo_online_available?`<div class="panel empty-state"><strong>Demo checkout is unavailable.</strong><span>Cash bookings are still available.</span></div>`:pending.length?`<section class="panel"><form id="payment-form" class="form-grid"><div class="field" style="grid-column:1/-1"><label>Shipment<select name="shipment_id" required>${pending.map(s=>`<option value="${esc(s.shipment_id)}">${esc(s.tracking_id)} · ${money(s.charge,s.currency)}</option>`).join("")}</select></label></div><div class="form-actions" style="grid-column:1/-1"><button class="button primary">Complete demo payment <span>→</span></button></div></form><div id="payment-result"></div></section>`:`<div class="panel empty-state"><strong>No demo online payment is due.</strong></div>`}`;
+  if($("#payment-form"))$("#payment-form").onsubmit=(e)=>{e.preventDefault();completeDemoPayment(new FormData(e.currentTarget).get("shipment_id"),$("#payment-result"))};
 }
 async function navigate(view){if(!state.account||!(ROLE_VIEWS[state.account.role]||[]).includes(view))return;state.view=view;document.querySelector("#sidebar").classList.remove("open");$("#view").innerHTML='<div class="panel empty-state">Loading workspace…</div>';try{if(view==="dashboard")await dashboard();else if(view==="shipments")await shipments();else if(view==="booking")booking();else if(view==="tracking")tracking();else if(view==="notifications")await notifications();else if(view==="complaints")await complaints();else if(view==="tasks")await tasks();else if(view==="operations")await operations();else if(view==="route-planner")await routePlanner();else if(view==="payments")await payments();else if(view==="reports")await reports();else if(view==="warehouse")await warehouse();else if(view==="finance")await finance()}catch(err){toast(err.message,true);$("#view").innerHTML=`<div class="panel empty-state"><strong>Unable to load this view</strong><span>${esc(err.message)}</span></div>`}}
 async function handleTaskAction(task){

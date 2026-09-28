@@ -9,3 +9,27 @@ def test_app_imports():
     assert "/api/complaints/{complaint_id}" in paths
     assert "/api/shipments/{shipment_id}/assessment" in paths
     assert "/api/reports/delays" in paths
+    assert "/api/payments/demo/complete" in paths
+
+
+def test_booking_accepts_no_charge_demo_payment_mode():
+    from app.main import AddressIn, BookingIn
+
+    address = AddressIn(
+        line1="12 Example Road",
+        city="Rudrapur",
+        state="Uttarakhand",
+        postal_code="263153",
+        contact_name="Test Customer",
+        contact_phone="9000000000",
+    )
+    booking = BookingIn(
+        sender=address,
+        receiver=address,
+        weight_kg="1",
+        length_cm="10",
+        width_cm="10",
+        height_cm="10",
+        payment_mode="DEMO",
+    )
+    assert booking.payment_mode == "DEMO"

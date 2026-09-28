@@ -133,7 +133,7 @@ class BookingIn(BaseModel):
     fragile: bool = False
     priority: bool = False
     cod_amount_due: Decimal = Field(default=Decimal("0"), ge=0, max_digits=14, decimal_places=2)
-    payment_mode: Literal["CASH", "RAZORPAY"] = "RAZORPAY"
+    payment_mode: Literal["CASH", "DEMO", "RAZORPAY"] = "DEMO"
 
 
 class PriceQuoteIn(BaseModel):
@@ -175,6 +175,10 @@ class RouteOptimizeIn(BaseModel):
 
 
 class RazorpayOrderIn(BaseModel):
+    shipment_id: str = Field(min_length=3, max_length=50)
+
+
+class DemoPaymentIn(BaseModel):
     shipment_id: str = Field(min_length=3, max_length=50)
 
 
@@ -593,7 +597,37 @@ def razorpay_test_keys_ready() -> bool:
 @app.get("/api/payments/options")
 def payment_options(request: Request, db: Session = Depends(get_db)):
     required_user(request, db)
-    return {"cash_available": True, "razorpay_available": razorpay_test_keys_ready(), "razorpay_mode": "test"}
+    return {
+        "cash_available": True,
+        "demo_online_available": True,
+        "razorpay_available": razorpay_test_keys_ready(),
+        "razorpay_mode": "test",
+    }
+
+
+@app.post("/api/payments/demo/complete")
+def complete_demo_payment(payload: DemoPaymentIn, request: Request, db: Session = Depends(get_db)):
+    """Confirm a no-charge demo checkout without creating a financial payment."""
+    user = required_user(request, db)
+    shipment = db.get(Shipment, payload.shipment_id)
+    customer = db.scalar(select(Customer).where(Customer.user_id == user.user_id))
+    staff = staff_for(db, user)
+    if not shipment or (not staff and (not customer or shipment.customer_id != customer.customer_id)):
+        raise HTTPException(404, "Shipment not found")
+    invoice = db.scalar(select(Invoice).where(Invoice.shipment_id == shipment.shipment_id).order_by(Invoice.issued_at.desc()))
+    if not invoice:
+        raise HTTPException(404, "Invoice not found")
+    if invoice.preferred_payment_mode != "DEMO":
+        raise HTTPException(409, "This invoice is not set up for demo online payment")
+    if invoice.payment_status_code == "PAID":
+        raise HTTPException(409, "This invoice has already been paid")
+    return {
+        "simulated": True,
+        "provider": "demo",
+        "invoice_no": invoice.invoice_no,
+        "payment_status": invoice.payment_status_code,
+        "message": "Demo checkout completed. No money was charged, transferred, or recorded.",
+    }
 
 
 @app.post("/api/payments/razorpay/order")
