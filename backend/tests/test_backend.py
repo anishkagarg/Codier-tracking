@@ -5,7 +5,7 @@ from unittest.mock import Mock
 
 from app.security import hash_otp, hash_password, verify_otp, verify_password
 from app.services import STATUS_TRANSITIONS, price_for_weight
-from app.main import razorpay_test_keys_ready
+from app.main import PriceQuoteIn, public_pricing_quote, razorpay_test_keys_ready
 
 
 def test_password_is_one_way_and_verifies():
@@ -38,6 +38,26 @@ def test_price_quote_uses_the_current_rule_and_rounds_to_currency():
 
     assert amount == Decimal("65.55")
     assert matched_rule is rule
+
+
+def test_public_quote_is_the_exact_booking_charge():
+    rule = SimpleNamespace(
+        rate_parameters={"base_charge": "250", "per_kg": "20"},
+        currency="INR",
+        version="STD-INR-2026",
+    )
+    db = Mock()
+    db.scalar.return_value = rule
+
+    result = public_pricing_quote(
+        PriceQuoteIn(weight_kg="3", delivery_type_code="STANDARD", destination_zone="LOCAL"),
+        db,
+    )
+
+    assert result["amount"] == "310.00"
+    assert result["total"] == "310.00"
+    assert result["tax"] == "0.00"
+    assert result["is_final_charge"] is True
 
 
 def test_razorpay_checkout_requires_test_keys(monkeypatch):

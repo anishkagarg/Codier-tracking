@@ -641,10 +641,10 @@ def pricing_quote(payload: PriceQuoteIn, request: Request, db: Session = Depends
 
 @app.post("/api/public/pricing/quote")
 def public_pricing_quote(payload: PriceQuoteIn, db: Session = Depends(get_db)):
-    """Public, non-binding estimate used before a customer signs in to book."""
+    """Return the exact charge produced by the same rule used during booking."""
     try:
         amount, rule = price_for_weight(db, payload.delivery_type_code, payload.destination_zone, payload.weight_kg)
-        return {"amount": str(amount), "currency": rule.currency.strip(), "delivery_type_code": payload.delivery_type_code, "weight_kg": str(payload.weight_kg), "pricing_rule_version": rule.version}
+        return {"amount": str(amount), "total": str(amount), "tax": "0.00", "currency": rule.currency.strip(), "delivery_type_code": payload.delivery_type_code, "weight_kg": str(payload.weight_kg), "pricing_rule_version": rule.version, "is_final_charge": True}
     except ValueError as exc:
         raise HTTPException(409, str(exc))
 

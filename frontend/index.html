@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="OptiGo courier tracking and operations workspace">
   <title>OptiGo | Courier Operations</title>
-  <link rel="stylesheet" href="css/app.css?v=landing-20260930">
+  <link rel="stylesheet" href="css/app.css?v=public-booking-tracking-20260930">
 </head>
 <body>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
@@ -17,7 +17,7 @@
       <button class="landing-signin" type="button" data-landing-action="login">Sign in <span>↗</span></button>
     </header>
     <nav class="landing-nav" aria-label="Main navigation">
-      <a href="#book">Book a shipment</a><a href="#track">Track shipment</a><a href="#services">Service guide</a><a href="#regulations">Regulatory guide</a><a href="#business">Business solutions</a><a href="#about">About us</a><a href="#contact">Contact us</a>
+      <a href="#book">Book a shipment</a><a href="#public-tracking">Track shipment</a><a href="#services">Service guide</a><a href="#regulations">Regulatory guide</a><a href="#business">Business solutions</a><a href="#about">About us</a><a href="#contact">Contact us</a>
     </nav>
 
     <main id="top">
@@ -29,23 +29,41 @@
           <div class="hero-assurance"><span>●</span> Booking • Tracking • Service guide</div>
         </div>
         <form id="landing-booking-form" class="landing-book-card" novalidate>
-          <div class="card-title"><span class="card-icon">✦</span><div><strong>Book a shipment</strong><small>Continue after sign-in</small></div></div>
+          <span id="book" class="section-anchor" aria-hidden="true"></span>
+          <div class="card-title"><span class="card-icon">✦</span><div><strong>Book a shipment</strong><small>Check the exact charge before signing in</small></div></div>
           <label>Pickup PIN code<input name="sender_postal_code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="6-digit PIN" required></label>
           <label>Delivery PIN code<input name="receiver_postal_code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="6-digit PIN" required></label>
           <div class="landing-field-row"><label>Weight (kg)<input name="weight_kg" type="number" min="0.001" step="0.001" placeholder="e.g. 1.5" required></label><label>Service<select name="delivery_type_code"><option value="STANDARD">Standard</option><option value="EXPRESS">Express</option></select></label></div>
-          <div id="landing-price" class="landing-price">Enter both PIN codes and parcel weight to see the estimate.</div>
+          <div id="landing-price" class="landing-price">Enter both PIN codes and parcel weight to see the exact charge.</div>
           <button class="landing-primary" type="submit">Continue to booking <span>→</span></button>
           <p>Already registered? <button type="button" class="text-link" data-landing-action="login">Sign in</button></p>
         </form>
       </section>
 
       <section class="quick-links" id="track">
-        <button type="button" data-landing-action="booking"><span>▣</span><strong>Book a shipment</strong><small>Price before you book</small></button>
+        <button type="button" data-landing-action="booking"><span>▣</span><strong>Book a shipment</strong><small>Check the exact charge</small></button>
         <button type="button" data-landing-action="tracking"><span>⌖</span><strong>Track shipment</strong><small>See its latest hand-off</small></button>
         <a href="#regulations"><span>✓</span><strong>Check item guidance</strong><small>Before you pack</small></a>
       </section>
 
-      <section class="landing-section services-section" id="services"><div class="section-intro"><p class="landing-kicker">SERVICE GUIDE</p><h2>A clear delivery journey</h2><p>One standard workflow for booking, pickup, warehouse receipt and delivery.</p></div><div class="service-grid"><article><b>01</b><h3>Book</h3><p>Add sender, receiver and parcel details. Your estimated price is shown before you place the order.</p></article><article><b>02</b><h3>Hand over</h3><p>A pickup is assigned and recorded. Each operational step is visible against the same tracking ID.</p></article><article><b>03</b><h3>Follow</h3><p>Track the shipment through transit and delivery, with support available when an update needs attention.</p></article></div></section>
+      <section class="public-tracking-section" id="public-tracking">
+        <div class="public-tracking-copy">
+          <p class="landing-kicker">LIVE SHIPMENT TRACKING</p>
+          <h2>Track your parcel without signing in</h2>
+          <p>Enter the tracking ID printed on your booking confirmation to see the latest status, location update and complete movement history.</p>
+        </div>
+        <form id="public-track-form" class="public-track-form">
+          <label for="public-track-input">Tracking ID</label>
+          <div class="public-track-search">
+            <input id="public-track-input" name="tracking_id" autocomplete="off" maxlength="50" placeholder="e.g. OBUTRK000001" required>
+            <button class="landing-primary" type="submit">Track shipment <span>→</span></button>
+          </div>
+          <p>Your contact details, payment information and delivery code remain private.</p>
+        </form>
+        <div id="public-track-result" class="public-track-result" aria-live="polite"></div>
+      </section>
+
+      <section class="landing-section services-section" id="services"><div class="section-intro"><p class="landing-kicker">SERVICE GUIDE</p><h2>A clear delivery journey</h2><p>One standard workflow for booking, pickup, warehouse receipt and delivery.</p></div><div class="service-grid"><article><b>01</b><h3>Book</h3><p>Add sender, receiver and parcel details. Your exact payable charge is shown before you continue.</p></article><article><b>02</b><h3>Hand over</h3><p>A pickup is assigned and recorded. Each operational step is visible against the same tracking ID.</p></article><article><b>03</b><h3>Follow</h3><p>Track the shipment through transit and delivery, with support available when an update needs attention.</p></article></div></section>
 
       <section class="landing-section regulatory-section" id="regulations"><div class="section-intro"><p class="landing-kicker">REGULATORY GUIDE</p><h2>Pack responsibly. Ship lawfully.</h2><p>This is a practical summary, not legal advice. Always check the official source and destination-specific requirements before shipping.</p></div><div class="regulatory-layout"><aside><h3>Before booking</h3><a href="#prohibited">Prohibited &amp; dangerous goods</a><a href="#international">International shipment checks</a><a href="#declaration">Accurate declaration</a><a href="#sources">Official sources</a></aside><div class="regulation-cards"><article id="prohibited"><span>01</span><h3>Do not tender prohibited or unsafe items</h3><p>Explosives, flammables, dangerous goods, narcotics and items prohibited by law must not be sent. Sharp items must be protected; certain batteries may require surface transport.</p><a href="https://www.indiapost.gov.in/mailproducts/domesticservices/prohibiteditems" target="_blank" rel="noopener">India Post: prohibited items ↗</a></article><article id="international"><span>02</span><h3>International shipments need customs checks</h3><p>Courier imports and exports are subject to Customs rules. Restricted or prohibited goods may need authorisation or may not be exportable at all.</p><a href="https://courier.cbic.gov.in/regulation.jsp" target="_blank" rel="noopener">CBIC courier regulations ↗</a></article><article id="declaration"><span>03</span><h3>Describe the contents accurately</h3><p>Use a truthful description and value. For exports, check the current DGFT export policy and ITC(HS) conditions before dispatch.</p><a href="https://content.dgft.gov.in/Website/General_Note_on_Export_Policy_2025.pdf" target="_blank" rel="noopener">DGFT export policy notes ↗</a></article></div></div><p id="sources" class="source-note">Sources: Department of Posts, Central Board of Indirect Taxes &amp; Customs, and Directorate General of Foreign Trade. Rules can change; OptiGo does not accept prohibited goods.</p></section>
 
@@ -140,11 +158,13 @@
     </div>
   </div>
   <script>
-    // GitHub Pages uses the hosted FastAPI service; local development can override this value.
-    window.OPTIGO_API_BASE = "https://optigo-api.onrender.com";
+    // Local previews use the local FastAPI process; GitHub Pages uses Render.
+    window.OPTIGO_API_BASE = ["localhost", "127.0.0.1"].includes(window.location.hostname)
+      ? "http://127.0.0.1:8000"
+      : "https://optigo-api.onrender.com";
   </script>
   <script src="js/india-locations.js?v=f2ade32"></script>
   <script src="js/booking-fields.js?v=booking-polish-20260929"></script>
-  <script src="js/app.js?v=booking-polish-20260929"></script>
+  <script src="js/app.js?v=public-booking-tracking-20260930"></script>
 </body>
 </html>

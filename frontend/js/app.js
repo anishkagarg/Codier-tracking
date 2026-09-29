@@ -29,6 +29,12 @@ function openPublicAuth(mode="login"){
   renderAuth(mode);
   window.scrollTo({top:0,behavior:"instant"});
 }
+function scrollToLandingSection(selector, focusSelector){
+  const section=$(selector);
+  if(!section)return;
+  section.scrollIntoView({behavior:"smooth",block:"center"});
+  if(focusSelector)setTimeout(()=>$(focusSelector)?.focus({preventScroll:true}),450);
+}
 function showShell(){
   const a=state.account;
   const allowed=ROLE_VIEWS[a.role]||[];
@@ -159,7 +165,15 @@ function booking(){
     }
   };
 }
-function tracking(){setTitle("Track shipment");$("#view").innerHTML=`<div class="section-heading"><div><h2>Follow the movement timeline.</h2><p>Enter your tracking ID to follow the shipment’s progress.</p></div></div><form id="track-form" class="search-bar"><input id="track-input" placeholder="e.g. OBUTRK000001" required><button class="button primary">Track shipment</button></form><div id="track-result"></div>`;$("#track-form").onsubmit=async(e)=>{e.preventDefault();try{const t=await api(`/api/track/${encodeURIComponent($("#track-input").value)}`);const a=t.delivery_assessment||{};$("#track-result").innerHTML=`<div class="grid-2"><section class="panel"><div class="panel-header"><h3>${esc(t.tracking_id)}</h3><span class="status-badge ${statusClass(t.status)}">${esc(t.status.replaceAll("_"," "))}</span></div><p class="muted" style="font-size:13px">${esc(t.delivery_type)} delivery · expected ${formatDate(t.expected_delivery)}</p><div class="assessment-callout ${a.is_delayed?"delayed":""}"><strong>${esc((a.state||"ON_SCHEDULE").replaceAll("_"," "))}</strong><span>${a.is_delayed?`${a.days_overdue} day(s) beyond the stored ETA`:`Schedule assessment based on the stored ETA`}</span></div><div class="timeline">${t.history.map(h=>`<div class="timeline-item"><span class="timeline-dot"></span><div class="timeline-body"><strong>${esc(h.status.replaceAll("_"," "))}</strong><p>${esc(h.remarks)}</p><small>${formatDate(h.event_at)} · ${esc(h.location_id)}</small></div></div>`).join("")}</div></section><section class="panel"><h3>Tracking privacy</h3><p class="muted" style="font-size:13px">This view is intentionally limited to shipment movement. Private contacts, OTP values, proof references, and financial details are not shown here.</p></section></div>`}catch(err){$("#track-result").innerHTML=`<div class="panel empty-state"><strong>Tracking ID not found</strong><span>${esc(err.message)}</span></div>`}}}
+function trackingResultMarkup(t, publicView=false){
+  const a=t.delivery_assessment||{};
+  const latest=t.latest_location;
+  const latestLocation=latest
+    ? `<div class="latest-location"><strong>Latest live location</strong><span>${Number(latest.latitude).toFixed(5)}, ${Number(latest.longitude).toFixed(5)}</span><small>GPS update recorded ${formatDate(latest.recorded_at)}</small><a href="https://www.openstreetmap.org/?mlat=${encodeURIComponent(latest.latitude)}&mlon=${encodeURIComponent(latest.longitude)}#map=15/${encodeURIComponent(latest.latitude)}/${encodeURIComponent(latest.longitude)}" target="_blank" rel="noopener">View on map ↗</a></div>`
+    : `<div class="latest-location unavailable"><strong>Latest recorded hand-off</strong><span>${esc(t.history.at(-1)?.remarks||"Shipment booked")}</span><small>A live GPS update has not been shared yet.</small></div>`;
+  return `<div class="${publicView?"public-tracking-grid":"grid-2"}"><section class="panel tracking-status-card"><div class="panel-header"><h3>${esc(t.tracking_id)}</h3><span class="status-badge ${statusClass(t.status)}">${esc(t.status.replaceAll("_"," "))}</span></div><p class="muted" style="font-size:13px">${esc(t.delivery_type)} delivery · expected ${formatDate(t.expected_delivery)}</p>${latestLocation}<div class="assessment-callout ${a.is_delayed?"delayed":""}"><strong>${esc((a.state||"ON_SCHEDULE").replaceAll("_"," "))}</strong><span>${a.is_delayed?`${a.days_overdue} day(s) beyond the stored delivery date`:`On the current delivery schedule`}</span></div><div class="timeline">${t.history.map(h=>`<div class="timeline-item"><span class="timeline-dot"></span><div class="timeline-body"><strong>${esc(h.status.replaceAll("_"," "))}</strong><p>${esc(h.remarks)}</p><small>${formatDate(h.event_at)} · ${esc(h.location_id)}</small></div></div>`).join("")}</div></section><section class="panel tracking-privacy-card"><h3>Tracking privacy</h3><p class="muted" style="font-size:13px">Only shipment movement is shown. Contact details, payment information, delivery codes and proof references remain private.</p></section></div>`;
+}
+function tracking(){setTitle("Track shipment");$("#view").innerHTML=`<div class="section-heading"><div><h2>Follow the movement timeline.</h2><p>Enter your tracking ID to follow the shipment’s progress.</p></div></div><form id="track-form" class="search-bar"><input id="track-input" placeholder="e.g. OBUTRK000001" required><button class="button primary">Track shipment</button></form><div id="track-result"></div>`;$("#track-form").onsubmit=async(e)=>{e.preventDefault();try{const t=await api(`/api/track/${encodeURIComponent($("#track-input").value.trim())}`);$("#track-result").innerHTML=trackingResultMarkup(t)}catch(err){$("#track-result").innerHTML=`<div class="panel empty-state"><strong>Tracking ID not found</strong><span>${esc(err.message)}</span></div>`}}}
 function taskAddress(address){return [address.line1,address.city,address.state,address.postal_code].filter(Boolean).map(esc).join(", ")}
 async function tasks(){
   setTitle(state.account.role==="DELIVERY_AGENT"?"My deliveries":state.account.role==="PICKUP_AGENT"?"My pickups":"My tasks");
@@ -264,8 +278,8 @@ document.addEventListener("click",(e)=>{
   if(landingAction){
     e.preventDefault();
     if(landingAction==="register")openPublicAuth("register");
-    else if(landingAction==="booking")openPublicAuth("login");
-    else if(landingAction==="tracking")openPublicAuth("login");
+    else if(landingAction==="booking")scrollToLandingSection("#landing-booking-form","#landing-booking-form input");
+    else if(landingAction==="tracking")scrollToLandingSection("#public-tracking","#public-track-input");
     else openPublicAuth("login");
     return;
   }
@@ -318,4 +332,18 @@ $("#logout-button").onclick=()=>{$("#logout-modal").classList.remove("hidden");$
 renderAuth("login");
 startupReady=api("/api/auth/logout",{method:"POST"}).catch(()=>{});
 $("#landing-booking-form").onsubmit=(event)=>{event.preventDefault();startLandingBooking(event.currentTarget)};
-(()=>{const form=$("#landing-booking-form"),price=$("#landing-price");let timer;async function quote(){const sender=form.elements.sender_postal_code.value,receiver=form.elements.receiver_postal_code.value,weight=Number(form.elements.weight_kg.value);if(!/^\d{6}$/.test(sender)||!/^\d{6}$/.test(receiver)||!Number.isFinite(weight)||weight<=0){price.textContent="Enter both 6-digit PIN codes and parcel weight to see the estimate.";return}price.textContent="Calculating estimate…";try{const response=await fetch(`${API}/api/public/pricing/quote`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({weight_kg:weight,delivery_type_code:form.elements.delivery_type_code.value,destination_zone:"LOCAL"})});const data=await response.json();if(!response.ok)throw new Error(data.detail||"Estimate unavailable");price.innerHTML=`Estimated charge: <strong>${money(data.amount,data.currency)}</strong><small>${sender} → ${receiver} · final charge is confirmed when the booking is completed.</small>`}catch(error){price.textContent="Estimate unavailable. Please continue to booking."}}function schedule(){clearTimeout(timer);timer=setTimeout(quote,300)}["sender_postal_code","receiver_postal_code","weight_kg","delivery_type_code"].forEach(name=>form.elements[name].addEventListener(name==="delivery_type_code"?"change":"input",schedule));})();
+(()=>{const form=$("#landing-booking-form"),price=$("#landing-price");let timer;async function quote(){const sender=form.elements.sender_postal_code.value,receiver=form.elements.receiver_postal_code.value,weight=Number(form.elements.weight_kg.value);if(!/^\d{6}$/.test(sender)||!/^\d{6}$/.test(receiver)||!Number.isFinite(weight)||weight<=0){price.textContent="Enter both 6-digit PIN codes and parcel weight to see the exact charge.";return}price.textContent="Calculating exact charge…";try{const response=await fetch(`${API}/api/public/pricing/quote`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({weight_kg:weight,delivery_type_code:form.elements.delivery_type_code.value,destination_zone:"LOCAL"})});const data=await response.json();if(!response.ok)throw new Error(data.detail||"Charge unavailable");price.innerHTML=`Exact payable charge: <strong>${money(data.total??data.amount,data.currency)}</strong><small>${sender} → ${receiver} · includes all currently applicable charges.</small>`}catch(error){price.textContent="Exact charge is unavailable right now. Please try again."}}function schedule(){clearTimeout(timer);timer=setTimeout(quote,300)}["sender_postal_code","receiver_postal_code","weight_kg","delivery_type_code"].forEach(name=>form.elements[name].addEventListener(name==="delivery_type_code"?"change":"input",schedule));})();
+$("#public-track-form").onsubmit=async(event)=>{
+  event.preventDefault();
+  const input=$("#public-track-input"),result=$("#public-track-result"),button=event.currentTarget.querySelector("button");
+  const trackingId=input.value.trim().toUpperCase();
+  input.value=trackingId;
+  button.disabled=true;
+  result.innerHTML='<div class="public-track-loading">Looking up the latest shipment movement…</div>';
+  try{
+    const trackingData=await api(`/api/track/${encodeURIComponent(trackingId)}`);
+    result.innerHTML=trackingResultMarkup(trackingData,true);
+  }catch(error){
+    result.innerHTML=`<div class="public-track-error"><strong>Tracking ID not found</strong><span>${esc(error.message)}</span><small>Check the ID on your booking confirmation and try again.</small></div>`;
+  }finally{button.disabled=false}
+};
