@@ -639,6 +639,16 @@ def pricing_quote(payload: PriceQuoteIn, request: Request, db: Session = Depends
         raise HTTPException(409, str(exc))
 
 
+@app.post("/api/public/pricing/quote")
+def public_pricing_quote(payload: PriceQuoteIn, db: Session = Depends(get_db)):
+    """Public, non-binding estimate used before a customer signs in to book."""
+    try:
+        amount, rule = price_for_weight(db, payload.delivery_type_code, payload.destination_zone, payload.weight_kg)
+        return {"amount": str(amount), "currency": rule.currency.strip(), "delivery_type_code": payload.delivery_type_code, "weight_kg": str(payload.weight_kg), "pricing_rule_version": rule.version}
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
+
+
 @app.get("/api/shipments/{shipment_id}")
 def get_shipment(shipment_id: str, request: Request, db: Session = Depends(get_db)):
     user = required_user(request, db)

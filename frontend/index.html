@@ -10,7 +10,52 @@
 <body>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-  <section id="auth-shell" class="auth-shell">
+  <section id="landing-shell" class="landing-shell">
+    <header class="landing-header">
+      <a class="landing-brand" href="#top" aria-label="OptiGo home"><img src="assets/OptiGo_Header_Logo.png" alt="OptiGo"></a>
+      <div class="landing-contact">☎ 1800 000 6746</div>
+      <button class="landing-signin" type="button" data-landing-action="login">Sign in <span>↗</span></button>
+    </header>
+    <nav class="landing-nav" aria-label="Main navigation">
+      <a href="#book">Book a shipment</a><a href="#track">Track shipment</a><a href="#services">Service guide</a><a href="#regulations">Regulatory guide</a><a href="#business">Business solutions</a><a href="#about">About us</a><a href="#contact">Contact us</a>
+    </nav>
+
+    <main id="top">
+      <section class="landing-hero">
+        <div class="hero-copy">
+          <p class="landing-kicker">OPTIGO COURIER SERVICES</p>
+          <h1>Send a parcel.<br><em>Track the movement.</em></h1>
+          <p>Domestic courier booking, shipment tracking and service information.</p>
+          <div class="hero-assurance"><span>●</span> Booking • Tracking • Service guide</div>
+        </div>
+        <form id="landing-booking-form" class="landing-book-card" novalidate>
+          <div class="card-title"><span class="card-icon">✦</span><div><strong>Book a shipment</strong><small>Continue after sign-in</small></div></div>
+          <label>Pickup PIN code<input name="sender_postal_code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="6-digit PIN" required></label>
+          <label>Delivery PIN code<input name="receiver_postal_code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="6-digit PIN" required></label>
+          <div class="landing-field-row"><label>Weight (kg)<input name="weight_kg" type="number" min="0.001" step="0.001" placeholder="e.g. 1.5" required></label><label>Service<select name="delivery_type_code"><option value="STANDARD">Standard</option><option value="EXPRESS">Express</option></select></label></div>
+          <div id="landing-price" class="landing-price">Enter both PIN codes and parcel weight to see the estimate.</div>
+          <button class="landing-primary" type="submit">Continue to booking <span>→</span></button>
+          <p>Already registered? <button type="button" class="text-link" data-landing-action="login">Sign in</button></p>
+        </form>
+      </section>
+
+      <section class="quick-links" id="track">
+        <button type="button" data-landing-action="booking"><span>▣</span><strong>Book a shipment</strong><small>Price before you book</small></button>
+        <button type="button" data-landing-action="tracking"><span>⌖</span><strong>Track shipment</strong><small>See its latest hand-off</small></button>
+        <a href="#regulations"><span>✓</span><strong>Check item guidance</strong><small>Before you pack</small></a>
+      </section>
+
+      <section class="landing-section services-section" id="services"><div class="section-intro"><p class="landing-kicker">SERVICE GUIDE</p><h2>A clear delivery journey</h2><p>One standard workflow for booking, pickup, warehouse receipt and delivery.</p></div><div class="service-grid"><article><b>01</b><h3>Book</h3><p>Add sender, receiver and parcel details. Your estimated price is shown before you place the order.</p></article><article><b>02</b><h3>Hand over</h3><p>A pickup is assigned and recorded. Each operational step is visible against the same tracking ID.</p></article><article><b>03</b><h3>Follow</h3><p>Track the shipment through transit and delivery, with support available when an update needs attention.</p></article></div></section>
+
+      <section class="landing-section regulatory-section" id="regulations"><div class="section-intro"><p class="landing-kicker">REGULATORY GUIDE</p><h2>Pack responsibly. Ship lawfully.</h2><p>This is a practical summary, not legal advice. Always check the official source and destination-specific requirements before shipping.</p></div><div class="regulatory-layout"><aside><h3>Before booking</h3><a href="#prohibited">Prohibited &amp; dangerous goods</a><a href="#international">International shipment checks</a><a href="#declaration">Accurate declaration</a><a href="#sources">Official sources</a></aside><div class="regulation-cards"><article id="prohibited"><span>01</span><h3>Do not tender prohibited or unsafe items</h3><p>Explosives, flammables, dangerous goods, narcotics and items prohibited by law must not be sent. Sharp items must be protected; certain batteries may require surface transport.</p><a href="https://www.indiapost.gov.in/mailproducts/domesticservices/prohibiteditems" target="_blank" rel="noopener">India Post: prohibited items ↗</a></article><article id="international"><span>02</span><h3>International shipments need customs checks</h3><p>Courier imports and exports are subject to Customs rules. Restricted or prohibited goods may need authorisation or may not be exportable at all.</p><a href="https://courier.cbic.gov.in/regulation.jsp" target="_blank" rel="noopener">CBIC courier regulations ↗</a></article><article id="declaration"><span>03</span><h3>Describe the contents accurately</h3><p>Use a truthful description and value. For exports, check the current DGFT export policy and ITC(HS) conditions before dispatch.</p><a href="https://content.dgft.gov.in/Website/General_Note_on_Export_Policy_2025.pdf" target="_blank" rel="noopener">DGFT export policy notes ↗</a></article></div></div><p id="sources" class="source-note">Sources: Department of Posts, Central Board of Indirect Taxes &amp; Customs, and Directorate General of Foreign Trade. Rules can change; OptiGo does not accept prohibited goods.</p></section>
+
+      <section class="business-banner" id="business"><div><p class="landing-kicker">BUSINESS SOLUTIONS</p><h2>Shipping for your growing business</h2><p>Use OptiGo to keep bookings, tasks, payments and shipment visibility together.</p></div><button type="button" data-landing-action="register">Create a customer account <span>→</span></button></section>
+      <section class="landing-section about-contact" id="about"><div><p class="landing-kicker">ABOUT US</p><h2>OptiGo courier operations</h2><p>OptiGo is a software-engineering project for domestic courier booking, operational tasks, payment records and tracking.</p></div><div id="contact"><p class="landing-kicker">CONTACT US</p><h3>Customer support</h3><p>Phone: 1800 000 6746<br>Email: support@optigo.example</p></div></section>
+    </main>
+    <footer class="landing-footer"><img src="assets/OptiGo_Logo_Workspace.svg" alt="OptiGo"><span>Domestic courier operations for your academic project.</span><a href="#regulations">Regulatory guide</a><a href="#about">About us</a><a href="#contact">Contact us</a></footer>
+  </section>
+
+  <section id="auth-shell" class="auth-shell hidden">
     <div class="auth-brand-panel">
       <img class="brand-logo signin-brand-logo" src="assets/OptiGo_Logo_Workspace.svg" alt="OptiGo logo">
       <h1>Every shipment,<br><span>clearly in view.</span></h1>

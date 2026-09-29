@@ -1,5 +1,5 @@
 const API = window.OPTIGO_API_BASE || "http://127.0.0.1:8000";
-const state = { account: null, view: "dashboard" };
+const state = { account: null, view: "dashboard", pendingBooking: null };
 let startupReady = Promise.resolve();
 const ROLE_VIEWS = {
   CUSTOMER: ["dashboard", "shipments", "booking", "payments", "tracking", "notifications", "complaints"],
@@ -23,6 +23,12 @@ function formatDate(value){return value?new Date(value).toLocaleDateString("en-I
 function renderAuth(mode="login"){const register=mode==="register";$("#login-form").classList.toggle("hidden",register);$("#register-form").classList.toggle("hidden",!register);$("#auth-eyebrow").textContent=register?"NEW CUSTOMER":"WELCOME BACK";$("#auth-title").textContent=register?"Create your OptiGo account":"Sign in to your workspace";$("#auth-subtitle").textContent=register?"Book and follow every shipment from one place.":"Use your OptiGo account to continue.";$("#auth-error").textContent="";$("#auth-error").classList.remove("show");$("#auth-switch").innerHTML=register?"Already have an account? <button type=\"button\" data-auth-mode=\"login\">Sign in</button>":"New to OptiGo? <button type=\"button\" data-auth-mode=\"register\">Create an account</button>"}
 function showAuthMessage(message,success=false){const node=$("#auth-error");node.textContent=message;node.classList.toggle("success",success);node.classList.add("show")}
 function showAuthError(message){showAuthMessage(message,false)}
+function openPublicAuth(mode="login"){
+  $("#landing-shell").classList.add("hidden");
+  $("#auth-shell").classList.remove("hidden");
+  renderAuth(mode);
+  window.scrollTo({top:0,behavior:"instant"});
+}
 function showShell(){
   const a=state.account;
   const allowed=ROLE_VIEWS[a.role]||[];
@@ -39,7 +45,16 @@ function showShell(){
   const taskLabel={DELIVERY_AGENT:"My deliveries",PICKUP_AGENT:"My pickups",WAREHOUSE_OFFICER:"My warehouse tasks",ADMINISTRATOR:"Team tasks",OPERATIONS_MANAGER:"Team tasks"}[a.role]||"My tasks";
   $("#staff-nav [data-view=tasks]").lastChild.textContent=taskLabel;
   document.querySelectorAll("#nav-list [data-view]").forEach(node=>node.classList.toggle("hidden",!allowed.includes(node.dataset.view)));
-  navigate(state.view);
+  if(state.pendingBooking&&a.role==="CUSTOMER"){
+    const pending=state.pendingBooking;
+    state.pendingBooking=null;
+    navigate("booking").then(()=>{
+      const form=$("#booking-form");
+      if(!form)return;
+      ["sender_postal_code","receiver_postal_code","weight_kg","delivery_type_code"].forEach(name=>{if(form.elements[name]&&pending[name])form.elements[name].value=pending[name]});
+      form.elements.weight_kg?.dispatchEvent(new Event("input",{bubbles:true}));
+    });
+  }else navigate(state.view);
 }
 function setTitle(title){$("#page-title").textContent=title;document.querySelectorAll(".nav-item").forEach(n=>n.classList.toggle("active",n.dataset.view===state.view))}
 function tableRows(shipments){if(!shipments.length)return `<div class="empty-state"><strong>No shipments found</strong><span>When a booking is created it will appear here.</span></div>`;return `<div class="table-wrap"><table class="data-table"><thead><tr><th>Tracking ID</th><th>Status</th><th>Booked</th><th>Expected</th><th>Charge</th></tr></thead><tbody>${shipments.map(s=>`<tr><td><button class="tracking-link link-button" data-track="${esc(s.tracking_id)}">${esc(s.tracking_id)}</button></td><td><span class="status-badge ${statusClass(s.status)}">${esc(s.status.replaceAll("_"," "))}</span></td><td>${formatDate(s.booking_date)}</td><td>${formatDate(s.expected_delivery)}</td><td>${money(s.charge,s.currency)}</td></tr>`).join("")}</tbody></table></div>`}
@@ -245,6 +260,15 @@ async function handleTaskAction(task){
   }catch(err){toast(err.message,true)}
 }
 document.addEventListener("click",(e)=>{
+  const landingAction=e.target.closest("[data-landing-action]")?.dataset.landingAction;
+  if(landingAction){
+    e.preventDefault();
+    if(landingAction==="register")openPublicAuth("register");
+    else if(landingAction==="booking")openPublicAuth("login");
+    else if(landingAction==="tracking")openPublicAuth("login");
+    else openPublicAuth("login");
+    return;
+  }
   const view=e.target.closest("[data-view]")?.dataset.view;
   if(view){e.preventDefault();navigate(view)}
   const auth=e.target.closest("[data-auth-mode]")?.dataset.authMode;
@@ -254,6 +278,13 @@ document.addEventListener("click",(e)=>{
   const task=e.target.closest("[data-task-action]");
   if(task)handleTaskAction(task);
 });
+function startLandingBooking(form){
+  if(!form)return;
+  if(!form.checkValidity()){form.querySelector(":invalid")?.focus();return}
+  state.pendingBooking=Object.fromEntries(new FormData(form));
+  openPublicAuth("register");
+  showAuthMessage("Create an account or sign in to complete your booking.",true);
+}
 document.addEventListener("click",(e)=>{const read=e.target.closest("[data-notification-read]");if(read){(async()=>{try{await api(`/api/notifications/${read.dataset.notificationRead}/read`,{method:"POST"});await notifications();toast("Notification marked as read")}catch(err){toast(err.message,true)}})()}const update=e.target.closest("[data-complaint-update]");if(update){const select=document.querySelector(`[data-complaint-status="${CSS.escape(update.dataset.complaintUpdate)}"]`);(async()=>{try{await api(`/api/complaints/${update.dataset.complaintUpdate}`,{method:"PATCH",body:JSON.stringify({status_code:select.value})});await complaints();toast("Complaint status updated")}catch(err){toast(err.message,true)}})()}});
 document.addEventListener("submit",async(e)=>{
   if(e.target.id!=="login-form"&&e.target.id!=="register-form")return;
@@ -286,3 +317,5 @@ $("#logout-button").onclick=()=>{$("#logout-modal").classList.remove("hidden");$
 // Opening the site begins at sign-in, even when this browser held a prior session.
 renderAuth("login");
 startupReady=api("/api/auth/logout",{method:"POST"}).catch(()=>{});
+$("#landing-booking-form").onsubmit=(event)=>{event.preventDefault();startLandingBooking(event.currentTarget)};
+(()=>{const form=$("#landing-booking-form"),price=$("#landing-price");let timer;async function quote(){const sender=form.elements.sender_postal_code.value,receiver=form.elements.receiver_postal_code.value,weight=Number(form.elements.weight_kg.value);if(!/^\d{6}$/.test(sender)||!/^\d{6}$/.test(receiver)||!Number.isFinite(weight)||weight<=0){price.textContent="Enter both 6-digit PIN codes and parcel weight to see the estimate.";return}price.textContent="Calculating estimate…";try{const response=await fetch(`${API}/api/public/pricing/quote`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({weight_kg:weight,delivery_type_code:form.elements.delivery_type_code.value,destination_zone:"LOCAL"})});const data=await response.json();if(!response.ok)throw new Error(data.detail||"Estimate unavailable");price.innerHTML=`Estimated charge: <strong>${money(data.amount,data.currency)}</strong><small>${sender} → ${receiver} · final charge is confirmed when the booking is completed.</small>`}catch(error){price.textContent="Estimate unavailable. Please continue to booking."}}function schedule(){clearTimeout(timer);timer=setTimeout(quote,300)}["sender_postal_code","receiver_postal_code","weight_kg","delivery_type_code"].forEach(name=>form.elements[name].addEventListener(name==="delivery_type_code"?"change":"input",schedule));})();
