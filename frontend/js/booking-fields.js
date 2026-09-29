@@ -31,8 +31,8 @@ async function suggestPostalCode(prefix) {
   const hint = document.querySelector('[data-location-hint="' + prefix + '"]');
   const pinData = window.OPTIGO_INDIA_LOCATIONS?.[state.value]?.[city.value];
   const knownPins = Array.isArray(pinData) ? pinData : (pinData ? [pinData] : []);
-  if (knownPins.length && !postal.value) { postal.value = String(knownPins[0]); hint.textContent = 'Suggested PIN for this city; you can edit it if needed.'; return; }
-  if (city.value && state.value) hint.textContent = 'Type any valid 6-digit Indian PIN if your area is not in the suggestions.';
+  if (knownPins.length && !postal.value) { postal.value = String(knownPins[0]); hint.textContent = 'Postal code suggested for this city.'; return; }
+  if (city.value && state.value) hint.textContent = 'Enter a valid 6-digit Indian postal code.';
 }
 
 function wireAddressLookup(prefix) {
@@ -50,7 +50,7 @@ function wireAddressLookup(prefix) {
         const response = await fetch((window.OPTIGO_API_BASE || 'http://127.0.0.1:8000') + '/api/locations/search?q=' + encodeURIComponent(query + ', ' + (state.value || '') + ', India'));
         const data = await response.json(); results = (data.features || []).filter((feature) => feature.properties && feature.properties.country === 'India');
         suggestions.innerHTML = results.map((feature, index) => '<button type="button" class="address-suggestion" data-address-index="' + index + '">' + esc(feature.properties.name || feature.properties.street || 'Address') + '<small>' + esc(feature.properties.state || '') + (feature.properties.postcode ? ' · ' + esc(feature.properties.postcode) : '') + '</small></button>').join('');
-      } catch { suggestions.innerHTML = '<div class="address-suggestion-message">Address search is temporarily unavailable. You can still enter the address manually.</div>'; }
+      } catch { suggestions.innerHTML = '<div class="address-suggestion-message">Address search is temporarily unavailable.</div>'; }
     }, 500);
   });
   suggestions.addEventListener('click', async (event) => {
@@ -71,6 +71,6 @@ function wireLocationFields(prefix) {
   state.addEventListener('input', () => loadCitiesForState(prefix));
   city.addEventListener('change', () => suggestPostalCode(prefix));
   city.addEventListener('input', () => suggestPostalCode(prefix));
-  postal.addEventListener('input', () => { const hint = document.querySelector('[data-location-hint="' + prefix + '"]'); if (postal.value) hint.textContent = 'PIN entered manually.'; });
+  postal.addEventListener('input', () => { const hint = document.querySelector('[data-location-hint="' + prefix + '"]'); if (postal.value) hint.textContent = ''; });
   wireAddressLookup(prefix);
 }

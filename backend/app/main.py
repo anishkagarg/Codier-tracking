@@ -715,7 +715,7 @@ def complete_demo_payment(payload: DemoPaymentIn, request: Request, db: Session 
     if not invoice:
         raise HTTPException(404, "Invoice not found")
     if invoice.preferred_payment_mode != "DEMO":
-        raise HTTPException(409, "This invoice is not set up for demo online payment")
+        raise HTTPException(409, "This invoice is not set up for online payment")
     if invoice.payment_status_code == "PAID":
         raise HTTPException(409, "This invoice has already been paid")
     return {
