@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 160" role="img" aria-labelledby="optigo-title optigo-description">
+  <title id="optigo-title">OptiGo</title>
+  <desc id="optigo-description">An orange delivery truck with a navy blue O and the orange OptiGo wordmark.</desc>
+  <g aria-hidden="true">
+    <path fill="#DD9529" d="M18 29h105c9 0 17 5 22 12l21 32h14c9 0 16 7 16 16v30h-20a30 30 0 0 0-58 0H72a30 30 0 0 0-58 0H3V44c0-8 7-15 15-15Z"/>
+    <path fill="#F7D28C" d="M132 48h20l20 30h-40Z"/>
+    <g transform="rotate(-9 76 70)">
+      <path fill="#0C1E36" fill-rule="evenodd" d="M76 22c-30 0-52 20-52 48s22 48 52 48 52-20 52-48-22-48-52-48Zm0 23c16 0 28 10 28 25S92 95 76 95 48 85 48 70s12-25 28-25Z"/>
+    </g>
+    <circle cx="43" cy="120" r="22" fill="#DD9529"/>
+    <circle cx="43" cy="120" r="9" fill="#F7D28C"/>
+    <circle cx="147" cy="120" r="22" fill="#DD9529"/>
+    <circle cx="147" cy="120" r="9" fill="#F7D28C"/>
+    <text x="211" y="111" fill="#DD9529" font-family="Arial Black, Arial, Helvetica, sans-serif" font-size="82" font-style="italic" font-weight="900" letter-spacing="-5">OptiGo</text>
+  </g>
+</svg>
