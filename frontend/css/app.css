@@ -167,6 +167,69 @@ body:has(#app-shell:not(.hidden)) .modal-backdrop{background:rgba(12,30,54,.48)}
 .service-grid b{color:#82520C}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
 
+/* Customer accounts continue the public landing-page identity; staff keep the operations shell above. */
+#app-shell>.customer-header,#app-shell>.customer-services{display:none}
+#app-shell.customer-workspace{min-height:100vh;display:grid;grid-template-columns:270px minmax(0,1fr);grid-template-rows:76px minmax(0,1fr);background:#FFF9F0;color:#0C1E36;--text:#0C1E36;--muted:#665d4d;--border:#EBDDC5;--primary:#034365;--primary-hover:#02354F;--accent:#DD9529;--card:#fff;--surface-soft:#FFF7E7;--shadow:0 12px 32px rgba(12,30,54,.07)}
+#app-shell.customer-workspace>.customer-header{grid-column:1/-1;grid-row:1;position:sticky;top:0;z-index:30;display:flex;align-items:center;justify-content:space-between;gap:18px;padding:0 clamp(18px,4vw,46px);background:#F7D28C;border-bottom:1px solid rgba(12,30,54,.17)}
+.customer-header-brand{display:flex;align-items:center;width:206px;max-width:42vw;padding:0;border:0;background:transparent;cursor:pointer}
+.customer-header-brand img{display:block;width:100%;height:auto;max-height:62px;object-fit:contain}
+.customer-header-account{display:flex;align-items:center;gap:11px;color:#0C1E36;font-size:14px;font-weight:700}
+.customer-header-avatar{display:grid;place-items:center;width:36px;height:36px;border:1px solid rgba(12,30,54,.2);border-radius:50%;background:rgba(255,255,255,.55);font-size:14px}
+.customer-signout{padding:9px 13px;border:1px solid rgba(12,30,54,.32);border-radius:6px;background:transparent;color:#0C1E36;font-size:12px;font-weight:800;cursor:pointer;transition:background .16s ease,color .16s ease}
+.customer-signout:hover{background:#0C1E36;color:#fff}
+#app-shell.customer-workspace>.customer-services{grid-column:1;grid-row:2;position:sticky;top:76px;align-self:start;display:flex;flex-direction:column;min-height:calc(100vh - 76px);padding:26px 16px 18px;background:#fff;border-right:1px solid #EBDDC5}
+.customer-services h2{margin:0 0 15px;padding:0 12px;color:#0C1E36;font-size:19px;letter-spacing:-.02em}
+.customer-services nav{display:grid;gap:4px}
+.customer-service-link{display:flex;align-items:center;width:100%;min-height:49px;padding:0 13px;border:0;border-bottom:1px solid #EEE5D8;border-radius:5px;background:transparent;color:#3F4C5A;text-align:left;font-size:14px;font-weight:650;cursor:pointer;transition:background .16s ease,color .16s ease}
+.customer-service-link:hover{background:#FFF7E7;color:#0C1E36}
+.customer-service-link.active{background:#FFF0CE;color:#0C1E36;box-shadow:inset 3px 0 #DD9529;font-weight:800}
+.customer-service-account{display:grid;gap:9px;margin-top:auto;padding:20px 8px 0;border-top:1px solid #EBDDC5;color:#665d4d;font-size:12px}
+.customer-service-account>.button{min-height:37px;font-size:11px}
+#app-shell.customer-workspace>.sidebar,#app-shell.customer-workspace>.page-wrap>.topbar,#app-shell.customer-workspace>.sidebar-overlay{display:none!important}
+#app-shell.customer-workspace>.page-wrap{grid-column:2;grid-row:2;display:flex;flex-direction:column;min-width:0;min-height:calc(100vh - 76px);margin:0}
+#app-shell:not(.customer-workspace)>.page-wrap>.customer-footer{display:none}
+#app-shell.customer-workspace #view.content{width:min(100%,1180px);max-width:1180px;min-height:calc(100vh - 220px);padding:38px clamp(22px,4vw,54px) 44px}
+#app-shell.customer-workspace .section-heading h2{color:#0C1E36;letter-spacing:-.025em}
+#app-shell.customer-workspace .panel,#app-shell.customer-workspace .metric-card,#app-shell.customer-workspace .table-wrap{box-shadow:0 12px 32px rgba(12,30,54,.055)}
+#app-shell.customer-workspace .button.primary{background:#DD9529;color:#0C1E36}
+#app-shell.customer-workspace .button.primary:hover{background:#B9791F;color:#fff}
+#app-shell.customer-workspace .button.secondary{background:#FFF0CE;color:#0C1E36}
+#app-shell.customer-workspace .customer-footer{display:flex;align-items:center;flex-wrap:wrap;gap:12px 24px;margin-top:auto;padding:22px clamp(22px,4vw,54px);border-top:1px solid #EBDDC5;background:#0C1E36;color:#E7EEF5;font-size:12px}
+.customer-footer-brand{color:#F0AD3F;font-size:18px;font-weight:850;letter-spacing:-.03em}
+.customer-footer>span:nth-child(2){margin-right:auto;color:#D3DFE9}
+.customer-footer a{color:#F8D58D;text-underline-offset:3px}
+.customer-footer a:hover{color:#fff}
+.pickup-explainer{max-width:760px;margin-bottom:20px}
+.pickup-explainer p{max-width:66ch;color:#665d4d;line-height:1.65}
+.pickup-history h3{margin-bottom:14px}
+.addressbook-layout{display:grid;grid-template-columns:minmax(280px,.9fr) minmax(0,1.1fr);gap:20px;align-items:start}
+.addressbook-layout>.panel{box-shadow:0 12px 32px rgba(12,30,54,.055)}
+.addressbook-list{display:grid;gap:10px}
+.addressbook-list>h3{margin:2px 0 4px;font-size:16px}
+.addressbook-entry{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:17px;border:1px solid #EBDDC5;border-radius:10px;background:#fff}
+.addressbook-entry p{margin:5px 0;color:#4F5D6A;font-size:13px;line-height:1.5}
+.addressbook-entry small{color:#665d4d}
+@media(max-width:760px){
+  #app-shell.customer-workspace{grid-template-columns:minmax(0,1fr);grid-template-rows:66px auto minmax(0,1fr)}
+  #app-shell.customer-workspace>.customer-header{grid-row:1;padding:0 15px}
+  .customer-header-brand{width:150px}
+  .customer-header-account{gap:7px;font-size:12px}
+  .customer-header-avatar{width:31px;height:31px}
+  .customer-signout{padding:8px 10px}
+  #app-shell.customer-workspace>.customer-services{grid-column:1;grid-row:2;position:static;min-height:0;padding:16px 14px 12px;border-right:0;border-bottom:1px solid #EBDDC5}
+  .customer-services h2{margin-bottom:10px;font-size:16px}
+  .customer-services nav{display:flex;gap:7px;overflow-x:auto;padding:1px 0 7px;scrollbar-width:thin}
+  .customer-service-link{flex:0 0 auto;width:auto;min-height:42px;padding:0 12px;border:1px solid #EBDDC5;border-radius:7px;white-space:nowrap;font-size:12px}
+  .customer-service-link.active{box-shadow:inset 0 -3px #DD9529}
+  .customer-service-account{display:none}
+  #app-shell.customer-workspace>.page-wrap{grid-column:1;grid-row:3;min-height:calc(100vh - 66px)}
+  #app-shell.customer-workspace #view.content{min-height:calc(100vh - 250px);padding:25px 16px 34px}
+  #app-shell.customer-workspace .customer-footer{padding:20px 17px;gap:11px 17px}
+  .customer-footer>span:nth-child(2){flex-basis:100%;order:2}
+  .addressbook-layout{grid-template-columns:1fr}
+  .addressbook-entry{align-items:flex-start;flex-direction:column}
+}
+
 /* Landing-page hierarchy: offers first, exact booking quote at the end. */
 .landing-header{height:76px;gap:clamp(12px,2vw,26px);background:#F7D28C;border-bottom-color:rgba(12,30,54,.16)}
 .landing-brand{flex:0 1 auto;line-height:0}

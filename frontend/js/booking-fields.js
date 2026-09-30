@@ -2,7 +2,7 @@ function locationFields(prefix, person) {
   const locations = window.OPTIGO_INDIA_LOCATIONS || {};
   const states = Object.keys(locations).sort();
   const stateOptions = states.map((state) => '<option value="' + esc(state) + '"></option>').join('');
-  return '<div class="form-grid"><div class="field"><label>House / apartment number<input name="' + prefix + '_house_number" autocomplete="address-line2" placeholder="e.g. Flat 12, Building A" required></label></div>' +
+  return '<div class="form-grid"><div class="field"><label>House / apartment number (optional)<input name="' + prefix + '_house_number" autocomplete="address-line2" placeholder="e.g. Flat 12, Building A"></label></div>' +
     '<div class="field address-field"><label>Street / area<input name="' + prefix + '_line1" data-address-input="' + prefix + '" autocomplete="address-line1" placeholder="Start typing a street or area" required><div class="address-suggestions" data-address-suggestions="' + prefix + '"></div></label></div>' +
     '<div class="field"><label>' + person + "'s name" + '<input name="' + prefix + '_contact_name" required></label></div>' +
     '<div class="field"><label>State<input name="' + prefix + '_state" data-location-state="' + prefix + '" list="' + prefix + '-states" autocomplete="address-level1" placeholder="Select or type a state" required><datalist id="' + prefix + '-states">' + stateOptions + '</datalist></label></div>' +

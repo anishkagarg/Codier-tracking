@@ -14,8 +14,8 @@ from fastapi.testclient import TestClient
 from app.db import Base
 from app.security import hash_otp, hash_password, verify_otp, verify_password
 from app.services import STATUS_TRANSITIONS, apply_shipping_offers, create_booking, price_for_weight
-from app.models import Customer, Department, Invoice, PasswordResetOTP, Staff, StaffRole, User
-from app.main import AuthIn, PasswordResetIn, PasswordResetRequestIn, PriceQuoteIn, confirm_password_reset, demo_online_enabled, location_cities, login, public_pricing_quote, razorpay_test_keys_ready, request_password_reset, validate_startup_configuration
+from app.models import Address, Customer, Department, Invoice, PasswordResetOTP, Staff, StaffRole, User
+from app.main import AddressIn, AuthIn, PasswordResetIn, PasswordResetRequestIn, PriceQuoteIn, confirm_password_reset, create_address, demo_online_enabled, list_addresses, location_cities, login, public_pricing_quote, razorpay_test_keys_ready, request_password_reset, validate_startup_configuration
 from starlette.requests import Request
 
 
@@ -110,6 +110,47 @@ def test_registration_persists_customer_and_generated_id_can_sign_in():
         assert signed_in.status_code == 200, signed_in.text
         assert signed_in.json()["account"]["user_id"] == user_id
         assert "session" in signed_in.headers.get("set-cookie", "")
+    engine.dispose()
+
+
+def test_customer_address_book_uses_authenticated_customer_api():
+    from app import main
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    tables = [Department.__table__, StaffRole.__table__, User.__table__, Customer.__table__, Staff.__table__, Address.__table__]
+    Base.metadata.create_all(engine, tables=tables)
+    test_app = FastAPI()
+    test_app.add_middleware(SessionMiddleware, secret_key="test-session-secret-long-enough-for-local-test")
+    test_app.post("/api/auth/register", status_code=201)(main.register)
+    test_app.post("/api/auth/login")(main.login)
+    test_app.get("/api/addresses")(list_addresses)
+    test_app.post("/api/addresses", status_code=201)(create_address)
+
+    def override_get_db():
+        with Session(engine) as db:
+            yield db
+
+    test_app.dependency_overrides[main.get_db] = override_get_db
+    with TestClient(test_app) as client:
+        address_payload = {
+            "line1": "12 Example Street", "city": "Pune", "state": "Maharashtra",
+            "postal_code": "411001", "country": "IN", "contact_name": "Test Customer",
+            "contact_phone": "9000000000",
+        }
+        assert client.get("/api/addresses").status_code == 401
+        registered = client.post("/api/auth/register", json={
+            "name": "Test Customer", "email": "addressbook@example.test",
+            "phone": "9000000000", "password": "AddressBookPassword123!",
+        })
+        assert registered.status_code == 201, registered.text
+        login_response = client.post("/api/auth/login", json={
+            "email": registered.json()["account"]["user_id"], "password": "AddressBookPassword123!",
+        })
+        assert login_response.status_code == 200, login_response.text
+        created = client.post("/api/addresses", json=address_payload)
+        assert created.status_code == 201, created.text
+        assert created.json()["line1"] == address_payload["line1"]
+        assert client.get("/api/addresses").json() == [created.json()]
     engine.dispose()
 
 

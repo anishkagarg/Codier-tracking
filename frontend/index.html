@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="OptiGo courier tracking and operations workspace">
   <title>OptiGo | Courier Operations</title>
-  <link rel="stylesheet" href="css/app.css?v=account-panel-20261001">
+  <link rel="stylesheet" href="css/app.css?v=customer-workspace-20261001-1">
 </head>
 <body>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
@@ -140,6 +140,21 @@
   </section>
 
   <section id="app-shell" class="app-shell hidden">
+    <header class="customer-header" aria-label="Customer account header">
+      <button class="customer-header-brand" type="button" data-view="booking" aria-label="OptiGo customer home"><img src="assets/OptiGo_Logo_Smooth.svg?v=original-logo-vector-20260930" alt="OptiGo"></button>
+      <div class="customer-header-account"><span class="customer-header-avatar" id="customer-avatar">O</span><span id="customer-header-name">Customer</span><button class="customer-signout" type="button" data-customer-logout>Sign out</button></div>
+    </header>
+    <aside class="customer-services" id="customer-services" aria-label="User services">
+      <h2>User Services</h2>
+      <nav aria-label="User services navigation">
+        <button class="customer-service-link" data-view="tracking">Track My Order</button>
+        <button class="customer-service-link" data-view="pickup">Schedule a Pickup</button>
+        <button class="customer-service-link" data-view="booking">Book a shipment</button>
+        <button class="customer-service-link" data-view="addressbook">AddressBook</button>
+        <button class="customer-service-link" data-view="shipments">Booking history</button>
+      </nav>
+      <div class="customer-service-account"><span id="customer-rail-name">Customer</span><button class="button ghost wide" type="button" data-customer-logout>Sign out</button><button class="button danger wide" type="button" id="customer-delete-account">Delete account</button></div>
+    </aside>
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-brand"><img class="brand-logo sidebar-logo" src="assets/OptiGo_Logo_Smooth.svg?v=original-logo-vector-20260930" alt="OptiGo logo"></div>
       <div class="nav-label">Workspace</div>
@@ -170,6 +185,7 @@
     <div class="page-wrap">
       <header class="topbar"><button class="menu-button" id="menu-button" aria-label="Open menu">☰</button><div><h1 id="page-title">Overview</h1></div><div class="topbar-actions"><div class="account-chip"><span class="avatar" id="avatar">O</span><span><strong id="account-name">Account</strong><small id="account-role">Customer</small></span></div></div></header>
       <main id="view" class="content"></main>
+      <footer class="customer-footer"><span class="customer-footer-brand">OptiGo</span><span>Customer services · Domestic courier operations for your academic project.</span><a href="https://courier.cbic.gov.in/regulation.jsp" target="_blank" rel="noopener">Regulatory guide ↗</a><a href="tel:18000006746">Customer support: 1800 000 6746</a><a href="mailto:support@optigo.example">Contact us</a></footer>
     </div>
     <div id="sidebar-overlay" class="sidebar-overlay"></div>
   </section>
@@ -195,7 +211,7 @@
   </div>
   <script src="config.js?v=api-connection-20261001-2"></script>
   <script src="js/india-locations.js?v=f2ade32"></script>
-  <script src="js/booking-fields.js?v=booking-polish-20260929"></script>
-  <script src="js/app.js?v=account-panel-20261001"></script>
+  <script src="js/booking-fields.js?v=customer-address-prefill-20261001-1"></script>
+  <script src="js/app.js?v=customer-workspace-20261001-1"></script>
 </body>
 </html>
