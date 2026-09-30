@@ -1,11 +1,15 @@
 """Create a clean, disposable PostgreSQL fixture for workflow integration tests."""
 
 import os
+import sys
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from pathlib import Path
 
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.db import Base, make_engine
 from app.models import (
