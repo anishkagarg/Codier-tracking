@@ -96,10 +96,11 @@ def main() -> None:
             user = User(user_id=user_id, name=f"Test {suffix.title()}", email=f"{suffix.lower()}@optigo.example.test", phone="9000000000", password_hash=hash_password("DisposableTest123!"), active=True, created_at=now, updated_at=now)
             db.add(user)
             db.flush()
-            if idx == 1:
-                customer = Customer(customer_id="TESTCUST001", customer_type="INDIVIDUAL", name=user.name, customer_no="TESTCNO001", user_id=user.user_id)
-                db.add(customer)
             db.add(Staff(staff_id=f"TESTSTF{idx:03d}", employee_id=f"TEST-EMP-{idx:03d}", department_code=department, role_code=role, active=True, user_id=user.user_id))
+        customer_user = User(user_id="TESTCUS001", name="Test Customer", email="customer@optigo.example.test", phone="9000000001", password_hash=hash_password("DisposableTest123!"), active=True, created_at=now, updated_at=now)
+        db.add(customer_user)
+        db.flush()
+        db.add(Customer(customer_id="TESTCUST001", customer_type="INDIVIDUAL", name=customer_user.name, customer_no="TESTCNO001", user_id=customer_user.user_id))
         db.commit()
     print("Disposable PostgreSQL workflow fixture created successfully.")
 
