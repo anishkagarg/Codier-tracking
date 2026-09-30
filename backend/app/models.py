@@ -102,6 +102,15 @@ class User(Base):
     updated_at = Column(DateTime(timezone=True), nullable=False)
 
 
+class PasswordResetOTP(Base):
+    __tablename__ = "password_reset_otps"
+    user_id = Column(String(12), ForeignKey("users.user_id", ondelete="CASCADE"), primary_key=True, nullable=False)
+    code_hash = Column(String(255), nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    attempt_count = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime(timezone=True), nullable=False)
+
+
 class Customer(Base):
     __tablename__ = "customers"
     customer_id = Column(String(40), primary_key=True, nullable=False)

@@ -13,8 +13,8 @@ from sqlalchemy.orm import Session
 from starlette.requests import Request
 
 from app.db import engine
-from app.main import AddressIn, BookingIn, DeliveryIn, StaffAccountIn, WarehouseScanIn, admin_staff, book_shipment, create_otp, create_staff_account, create_warehouse_scan, deliver, pickup_complete, start_delivery
-from app.models import Customer, Hub, Invoice, Notification, Payment, Shipment, ShipmentAssignment, Staff, User
+from app.main import AddressIn, BookingIn, DeliveryIn, StaffAccountIn, WarehouseScanIn, admin_staff, book_shipment, create_otp, create_staff_account, create_warehouse_scan, deliver, finance_summary, operations_lookups, pickup_complete, start_delivery, warehouse_scans
+from app.models import Customer, Hub, Invoice, Notification, Payment, PricingRule, Shipment, ShipmentAssignment, Staff, User
 
 
 pytestmark = pytest.mark.skipif(os.getenv("OPTIGO_INTEGRATION_TEST") != "1", reason="requires the local PostgreSQL fixture")
@@ -30,6 +30,10 @@ def test_booking_passes_once_through_pickup_warehouse_and_delivery():
         outer = connection.begin()
         db = Session(bind=connection, join_transaction_mode="create_savepoint")
         try:
+            rule = db.scalar(select(PricingRule).where(PricingRule.delivery_type_code == "STANDARD", PricingRule.destination_zone == "LOCAL"))
+            assert rule is not None
+            rule.rate_parameters = {"base_charge": "1200", "per_kg": "0"}
+            db.flush()
             customer_user = db.scalar(select(User).join(Customer, Customer.user_id == User.user_id).where(User.active.is_(True)).limit(1))
             assert customer_user is not None
             key = f"integration-{uuid4()}"
@@ -38,6 +42,11 @@ def test_booking_passes_once_through_pickup_warehouse_and_delivery():
             placed = book_shipment(payload, request_for(customer_user.user_id, key), db)
             shipment = db.get(Shipment, placed["shipment_id"])
             assert placed["tracking_id"] == shipment.tracking_id
+            assert shipment.charge == 1090
+            invoice = db.scalar(select(Invoice).where(Invoice.shipment_id == shipment.shipment_id))
+            assert invoice.subtotal == 1200
+            assert invoice.total == 1090
+            assert shipment.cod_amount_due == 1090
             assert shipment.current_status == "BOOKED"
             pickup = db.scalar(select(ShipmentAssignment).where(ShipmentAssignment.shipment_id == shipment.shipment_id, ShipmentAssignment.task_type_code == "PICKUP"))
             assert pickup is not None
@@ -120,6 +129,34 @@ def test_administrator_can_provision_a_warehouse_officer_login():
             with pytest.raises(HTTPException) as forbidden:
                 admin_staff(request_for(customer_user.user_id), db)
             assert forbidden.value.status_code == 403
+        finally:
+            db.close()
+            outer.rollback()
+
+
+def test_department_read_access_matches_staff_role_matrix():
+    with engine.connect() as connection:
+        outer = connection.begin()
+        db = Session(bind=connection, join_transaction_mode="create_savepoint")
+        try:
+            staff_by_role = {row.role_code: row for row in db.scalars(select(Staff).where(Staff.active.is_(True))).all()}
+            assert set(staff_by_role) >= {"ADMINISTRATOR", "OPERATIONS_MANAGER", "ACCOUNTS_OFFICER", "BOOKING_OFFICER", "PICKUP_AGENT", "WAREHOUSE_OFFICER", "DELIVERY_AGENT", "SUPPORT_OFFICER", "TRACKING_OFFICER"}
+
+            finance_summary(request_for(staff_by_role["ACCOUNTS_OFFICER"].user_id), db)
+            operations_lookups(request_for(staff_by_role["TRACKING_OFFICER"].user_id), db)
+            warehouse_scans(request_for(staff_by_role["WAREHOUSE_OFFICER"].user_id), db)
+            admin_staff(request_for(staff_by_role["ADMINISTRATOR"].user_id), db)
+
+            from fastapi import HTTPException
+            for endpoint, denied_role in (
+                (finance_summary, "PICKUP_AGENT"),
+                (operations_lookups, "SUPPORT_OFFICER"),
+                (warehouse_scans, "ACCOUNTS_OFFICER"),
+                (admin_staff, "OPERATIONS_MANAGER"),
+            ):
+                with pytest.raises(HTTPException) as forbidden:
+                    endpoint(request_for(staff_by_role[denied_role].user_id), db)
+                assert forbidden.value.status_code == 403
         finally:
             db.close()
             outer.rollback()

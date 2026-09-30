@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from contextlib import asynccontextmanager
 from functools import lru_cache
 import hashlib
 import hmac
+import logging
 import json
 import os
+import secrets
 from urllib.parse import quote
 from urllib.request import Request as UrlRequest, urlopen
 
@@ -21,14 +23,50 @@ from starlette.middleware.sessions import SessionMiddleware
 from typing import Literal
 
 from .db import engine, get_db
-from .models import Address, AssignmentStatus, BookingIdempotency, Complaint, Customer, DeliveryType, Department, Hub, Invoice, LocationUpdate, Notification, Payment, PricingRule, Refund, Route, Shipment, ShipmentAssignment, ShipmentStatusHistory, Staff, StaffRole, User, Vehicle, WarehouseScan
-from .security import hash_password, verify_password
-from .services import add_location_and_history, assign_task, auto_assign_task, create_booking, delivery_assessment, haversine_km, latest_gps_location, new_id, optimize_route, price_for_weight, public_tracking, request_delivery_otp, transition_assignment, verify_delivery
+from .models import Address, AssignmentStatus, BookingIdempotency, Complaint, Customer, DeliveryType, Department, Hub, Invoice, LocationUpdate, Notification, PasswordResetOTP, Payment, PricingRule, Refund, Route, Shipment, ShipmentAssignment, ShipmentStatusHistory, Staff, StaffRole, User, Vehicle, WarehouseScan
+from .security import hash_otp, hash_password, verify_otp, verify_password
+from .services import add_location_and_history, apply_shipping_offers, assign_task, auto_assign_task, create_booking, delivery_assessment, haversine_km, latest_gps_location, new_id, optimize_route, price_for_weight, public_tracking, request_delivery_otp, send_password_reset_email, transition_assignment, verify_delivery
+
+logger = logging.getLogger(__name__)
+
+
+def validate_startup_configuration() -> None:
+    """Fail closed when secrets or deployment settings are missing or unsafe."""
+    from sqlalchemy.engine import make_url
+
+    try:
+        import bcrypt  # noqa: F401 -- imported here so the service cannot silently serve broken bcrypt logins.
+    except (ImportError, OSError) as exc:
+        raise RuntimeError("bcrypt is required for imported account login. Install backend/requirements.txt in this Python environment.") from exc
+
+    if not os.getenv("DATABASE_URL", "").strip():
+        raise RuntimeError("DATABASE_URL is required before OptiGo can start.")
+    secret = os.getenv("SESSION_SECRET", "").strip()
+    if len(secret) < 32 or secret.lower() in {"change-this-session-secret", "replace-with-a-long-random-secret"}:
+        raise RuntimeError("SESSION_SECRET must be a unique random value of at least 32 characters.")
+    environment = os.getenv("OPTIGO_ENV", "development").strip().lower()
+    if environment not in {"development", "test", "demo", "production"}:
+        raise RuntimeError("OPTIGO_ENV must be development, test, demo, or production.")
+    database_url = make_url(os.environ["DATABASE_URL"])
+    if environment == "production":
+        if not database_url.drivername.startswith("postgresql"):
+            raise RuntimeError("Production requires a PostgreSQL DATABASE_URL.")
+        if os.getenv("COOKIE_SECURE", "").strip().lower() != "true":
+            raise RuntimeError("COOKIE_SECURE=true is required in production.")
+        frontend_origins = [origin.strip() for origin in os.getenv("FRONTEND_ORIGINS", "").split(",") if origin.strip()]
+        if not frontend_origins or "*" in frontend_origins or any(not origin.startswith("https://") for origin in frontend_origins):
+            raise RuntimeError("FRONTEND_ORIGINS must contain only explicit HTTPS origins in production.")
+        if os.getenv("DEMO_ONLINE_ENABLED", "false").strip().lower() == "true":
+            raise RuntimeError("Simulated online payment cannot be enabled in production.")
+        if os.getenv("RAZORPAY_MODE", "test").strip().lower() != "test":
+            raise RuntimeError("Only explicitly configured Razorpay test mode is supported.")
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    validate_startup_configuration()
     # Additive migration: creates only the new table and leaves existing records untouched.
     BookingIdempotency.__table__.create(bind=engine, checkfirst=True)
+    PasswordResetOTP.__table__.create(bind=engine, checkfirst=True)
     with engine.begin() as connection:
         connection.execute(text("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS preferred_payment_mode VARCHAR(20)"))
         connection.execute(text("ALTER TABLE notifications ALTER COLUMN read_at DROP NOT NULL"))
@@ -38,17 +76,26 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="OptiGo Courier Tracking API", version="1.0.0", description="OptiGo backend connected to the configured PostgreSQL database.", lifespan=lifespan)
-origins = [x.strip() for x in os.getenv("FRONTEND_ORIGINS", "http://127.0.0.1:5173,http://localhost:5173").split(",") if x.strip()]
+origins = [x.strip() for x in os.getenv("FRONTEND_ORIGINS", "").split(",") if x.strip()]
 cookie_secure = os.getenv("COOKIE_SECURE", "false").lower() == "true"
 # GitHub Pages and Render are different sites, so the authenticated session
 # cookie must be allowed on cross-site API requests in production.
-app.add_middleware(SessionMiddleware, secret_key=os.getenv("SESSION_SECRET", "change-this-session-secret"), same_site="none" if cookie_secure else "lax", https_only=cookie_secure)
+app.add_middleware(SessionMiddleware, secret_key=os.getenv("SESSION_SECRET", ""), same_site="none" if cookie_secure else "lax", https_only=cookie_secure)
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 
 class AuthIn(BaseModel):
     email: str = Field(min_length=5, max_length=254)
     password: str = Field(min_length=8, max_length=200)
+
+
+class PasswordResetRequestIn(BaseModel):
+    user_id: str = Field(min_length=5, max_length=12)
+
+
+class PasswordResetIn(PasswordResetRequestIn):
+    code: str = Field(pattern=r"^[0-9]{6}$")
+    new_password: str = Field(min_length=8, max_length=200)
 
 
 class RegisterIn(AuthIn):
@@ -76,8 +123,9 @@ def location_cities(state: str = Query(min_length=2, max_length=100)):
     try:
         result = external_json("https://countriesnow.space/api/v0.1/countries/state/cities", {"country": "India", "state": state})
         return {"cities": sorted(set(result.get("data") or []))}
-    except Exception:
-        return {"cities": []}
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        logger.warning("City lookup unavailable (%s)", type(exc).__name__)
+        return {"cities": [], "available": False, "message": "City suggestions are unavailable; you can enter the city manually."}
 
 
 @app.get("/api/locations/search")
@@ -86,8 +134,9 @@ def location_search(q: str = Query(min_length=3, max_length=240)):
         result = external_json("https://photon.komoot.io/api/?q=" + quote(q) + "&limit=6")
         features = [feature for feature in result.get("features", []) if feature.get("properties", {}).get("country") == "India"]
         return {"features": features}
-    except Exception:
-        return {"features": []}
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        logger.warning("Address lookup unavailable (%s)", type(exc).__name__)
+        return {"features": [], "available": False, "message": "Address suggestions are unavailable; you can enter the address manually."}
 
 
 @lru_cache(maxsize=256)
@@ -114,8 +163,9 @@ def location_post_offices(city: str = Query(min_length=2, max_length=100), state
         ]
         unique = {(item["name"], item["pincode"]): item for item in matches}
         return {"post_offices": list(unique.values())}
-    except Exception:
-        return {"post_offices": []}
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        logger.warning("Post-office lookup unavailable (%s)", type(exc).__name__)
+        return {"post_offices": [], "available": False, "message": "PIN suggestions are unavailable; you can enter the 6-digit PIN manually."}
 
 
 class AddressIn(BaseModel):
@@ -141,7 +191,7 @@ class BookingIn(BaseModel):
     fragile: bool = False
     priority: bool = False
     cod_amount_due: Decimal = Field(default=Decimal("0"), ge=0, max_digits=14, decimal_places=2)
-    payment_mode: Literal["CASH", "DEMO", "RAZORPAY"] = "DEMO"
+    payment_mode: Literal["CASH", "DEMO", "RAZORPAY"] = "CASH"
 
 
 class PriceQuoteIn(BaseModel):
@@ -304,9 +354,10 @@ def health_live():
 def health_ready(db: Session = Depends(get_db)):
     try:
         db.execute(text("select 1"))
-        return {"status": "ready", "database": "seneca_phase3"}
+        return {"status": "ready", "database": "connected"}
     except Exception as exc:
-        raise HTTPException(503, f"Database is not ready: {exc}")
+        logger.error("Database readiness check failed (%s)", type(exc).__name__)
+        raise HTTPException(503, "Database is not ready") from exc
 
 
 @app.get("/api/auth/me")
@@ -334,12 +385,67 @@ def register(payload: RegisterIn, request: Request, db: Session = Depends(get_db
 
 @app.post("/api/auth/login")
 def login(payload: AuthIn, request: Request, db: Session = Depends(get_db)):
-    user = db.scalar(select(User).where(User.email == str(payload.email).lower().strip()))
+    identifier = str(payload.email).strip()
+    user = db.scalar(select(User).where((User.email == identifier.lower()) | (User.user_id == identifier.upper())))
     if not user or not user.active or not verify_password(payload.password, user.password_hash):
-        raise HTTPException(401, "Invalid email or password")
+        raise HTTPException(401, "Invalid user ID or email, or password")
     request.session.clear()
     request.session["user_id"] = user.user_id
     return {"account": account_view(db, user)}
+
+
+@app.post("/api/auth/password-reset/request", status_code=202)
+def request_password_reset(payload: PasswordResetRequestIn, db: Session = Depends(get_db)):
+    if os.getenv("EMAIL_TRANSPORT", "in_app").lower() != "smtp" or not os.getenv("SMTP_HOST"):
+        raise HTTPException(503, "Password reset email is not configured. Contact OptiGo support.")
+    user_id = payload.user_id.strip().upper()
+    user = db.get(User, user_id)
+    if user and user.active:
+        now = datetime.now(timezone.utc)
+        existing = db.get(PasswordResetOTP, user.user_id)
+        if existing:
+            created_at = existing.created_at
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+            if now - created_at < timedelta(seconds=60):
+                raise HTTPException(429, "Please wait one minute before requesting another code.")
+        code = f"{secrets.randbelow(1_000_000):06d}"
+        if not send_password_reset_email(user, code):
+            raise HTTPException(503, "We could not send a reset code right now. Please try again later.")
+        recovery = existing or PasswordResetOTP(user_id=user.user_id, code_hash=hash_otp(code), expires_at=now + timedelta(minutes=10), attempt_count=0, created_at=now)
+        recovery.code_hash = hash_otp(code)
+        recovery.expires_at = now + timedelta(minutes=10)
+        recovery.attempt_count = 0
+        recovery.created_at = now
+        db.add(recovery)
+        db.commit()
+    return {"message": "If that user ID is active, a reset code has been sent to the registered email address."}
+
+
+@app.post("/api/auth/password-reset/confirm")
+def confirm_password_reset(payload: PasswordResetIn, db: Session = Depends(get_db)):
+    user_id = payload.user_id.strip().upper()
+    user = db.get(User, user_id)
+    recovery = db.get(PasswordResetOTP, user_id)
+    now = datetime.now(timezone.utc)
+    if not user or not user.active or not recovery:
+        raise HTTPException(400, "The reset code is invalid or expired. Request a new code and try again.")
+    expires_at = recovery.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if recovery.attempt_count >= 5 or expires_at <= now:
+        db.delete(recovery)
+        db.commit()
+        raise HTTPException(400, "The reset code is invalid or expired. Request a new code and try again.")
+    if not verify_otp(payload.code, recovery.code_hash):
+        recovery.attempt_count += 1
+        db.commit()
+        raise HTTPException(400, "The reset code is invalid or expired. Request a new code and try again.")
+    user.password_hash = hash_password(payload.new_password)
+    user.updated_at = now
+    db.delete(recovery)
+    db.commit()
+    return {"password_reset": True, "message": "Password updated. Sign in with your new password."}
 
 
 @app.post("/api/auth/logout")
@@ -595,6 +701,8 @@ def list_shipments(request: Request, search: str | None = Query(default=None), d
 @app.post("/api/shipments", status_code=201)
 def book_shipment(payload: BookingIn, request: Request, db: Session = Depends(get_db)):
     user = required_user(request, db)
+    if payload.payment_mode == "DEMO" and not demo_online_enabled():
+        raise HTTPException(400, "Simulated checkout is disabled; choose cash or configured Razorpay test checkout")
     customer = db.scalar(select(Customer).where(Customer.user_id == user.user_id))
     if not customer:
         raise HTTPException(403, "Customer profile required")
@@ -633,18 +741,20 @@ def book_shipment(payload: BookingIn, request: Request, db: Session = Depends(ge
 def pricing_quote(payload: PriceQuoteIn, request: Request, db: Session = Depends(get_db)):
     required_user(request, db)
     try:
-        amount, rule = price_for_weight(db, payload.delivery_type_code, payload.destination_zone, payload.weight_kg)
-        return {"amount": str(amount), "currency": rule.currency.strip(), "delivery_type_code": payload.delivery_type_code, "weight_kg": str(payload.weight_kg), "pricing_rule_version": rule.version}
+        subtotal, rule = price_for_weight(db, payload.delivery_type_code, payload.destination_zone, payload.weight_kg)
+        pricing = apply_shipping_offers(subtotal, rule.currency)
+        return {"amount": str(pricing["total"]), "subtotal": str(pricing["subtotal"]), "discount": str(pricing["discount"]), "discounts": [{**offer, "amount": str(offer["amount"])} for offer in pricing["discounts"]], "currency": rule.currency.strip(), "delivery_type_code": payload.delivery_type_code, "weight_kg": str(payload.weight_kg), "pricing_rule_version": rule.version}
     except ValueError as exc:
         raise HTTPException(409, str(exc))
 
 
 @app.post("/api/public/pricing/quote")
 def public_pricing_quote(payload: PriceQuoteIn, db: Session = Depends(get_db)):
-    """Return the exact charge produced by the same rule used during booking."""
+    """Return the exact post-offer charge produced by the booking rule."""
     try:
-        amount, rule = price_for_weight(db, payload.delivery_type_code, payload.destination_zone, payload.weight_kg)
-        return {"amount": str(amount), "total": str(amount), "tax": "0.00", "currency": rule.currency.strip(), "delivery_type_code": payload.delivery_type_code, "weight_kg": str(payload.weight_kg), "pricing_rule_version": rule.version, "is_final_charge": True}
+        subtotal, rule = price_for_weight(db, payload.delivery_type_code, payload.destination_zone, payload.weight_kg)
+        pricing = apply_shipping_offers(subtotal, rule.currency)
+        return {"amount": str(pricing["total"]), "subtotal": str(pricing["subtotal"]), "discount": str(pricing["discount"]), "discounts": [{**offer, "amount": str(offer["amount"])} for offer in pricing["discounts"]], "total": str(pricing["total"]), "tax": "0.00", "currency": rule.currency.strip(), "delivery_type_code": payload.delivery_type_code, "weight_kg": str(payload.weight_kg), "pricing_rule_version": rule.version, "is_final_charge": True}
     except ValueError as exc:
         raise HTTPException(409, str(exc))
 
@@ -698,17 +808,22 @@ def route_optimize(payload: RouteOptimizeIn, request: Request, db: Session = Dep
 
 
 def razorpay_test_keys_ready() -> bool:
-    return os.getenv("RAZORPAY_KEY_ID", "").strip().startswith("rzp_test_") and bool(os.getenv("RAZORPAY_KEY_SECRET", "").strip())
+    return os.getenv("RAZORPAY_MODE", "test").strip().lower() == "test" and os.getenv("RAZORPAY_KEY_ID", "").strip().startswith("rzp_test_") and bool(os.getenv("RAZORPAY_KEY_SECRET", "").strip())
+
+
+def demo_online_enabled() -> bool:
+    return os.getenv("DEMO_ONLINE_ENABLED", "false").strip().lower() == "true" and os.getenv("OPTIGO_ENV", "development").strip().lower() in {"development", "demo"}
 
 
 @app.get("/api/payments/options")
 def payment_options(request: Request, db: Session = Depends(get_db)):
     required_user(request, db)
+    demo_enabled = demo_online_enabled()
     return {
         "cash_available": True,
-        "demo_online_available": True,
+        "demo_online_available": demo_enabled,
         "razorpay_available": razorpay_test_keys_ready(),
-        "razorpay_mode": "test",
+        "razorpay_mode": os.getenv("RAZORPAY_MODE", "test"),
     }
 
 
@@ -716,6 +831,8 @@ def payment_options(request: Request, db: Session = Depends(get_db)):
 def complete_demo_payment(payload: DemoPaymentIn, request: Request, db: Session = Depends(get_db)):
     """Confirm a no-charge demo checkout without creating a financial payment."""
     user = required_user(request, db)
+    if not demo_online_enabled():
+        raise HTTPException(404, "Simulated checkout is not enabled")
     shipment = db.get(Shipment, payload.shipment_id)
     customer = db.scalar(select(Customer).where(Customer.user_id == user.user_id))
     staff = staff_for(db, user)

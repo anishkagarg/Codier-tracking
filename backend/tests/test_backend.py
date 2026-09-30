@@ -3,9 +3,20 @@ from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import pytest
+from fastapi import FastAPI
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
+from sqlalchemy.pool import StaticPool
+from starlette.middleware.sessions import SessionMiddleware
+from fastapi.testclient import TestClient
+
+from app.db import Base
 from app.security import hash_otp, hash_password, verify_otp, verify_password
-from app.services import STATUS_TRANSITIONS, price_for_weight
-from app.main import PriceQuoteIn, public_pricing_quote, razorpay_test_keys_ready
+from app.services import STATUS_TRANSITIONS, apply_shipping_offers, create_booking, price_for_weight
+from app.models import Customer, Department, Invoice, PasswordResetOTP, Staff, StaffRole, User
+from app.main import AuthIn, PasswordResetIn, PasswordResetRequestIn, PriceQuoteIn, confirm_password_reset, demo_online_enabled, location_cities, login, public_pricing_quote, razorpay_test_keys_ready, request_password_reset, validate_startup_configuration
+from starlette.requests import Request
 
 
 def test_password_is_one_way_and_verifies():
@@ -13,6 +24,139 @@ def test_password_is_one_way_and_verifies():
     assert stored != "CorrectHorseBatteryStaple!"
     assert verify_password("CorrectHorseBatteryStaple!", stored)
     assert not verify_password("wrong-password", stored)
+
+
+def test_imported_bcrypt_hashes_verify_with_the_declared_runtime_dependency():
+    import bcrypt
+
+    encoded = bcrypt.hashpw(b"ImportedAccountTest123!", bcrypt.gensalt()).decode("ascii")
+    assert encoded.startswith("$2b$")
+    assert verify_password("ImportedAccountTest123!", encoded)
+    assert not verify_password("not-the-password", encoded)
+
+
+def test_bcrypt_login_creates_session_and_rejects_wrong_password():
+    import bcrypt
+    from fastapi import HTTPException
+
+    encoded = bcrypt.hashpw(b"TemporarySessionTest123!", bcrypt.gensalt()).decode("ascii")
+    user = SimpleNamespace(
+        user_id="TESTUSR001", name="Test Customer", email="test@example.test",
+        phone="9000000000", password_hash=encoded, active=True,
+    )
+    request = Request({"type": "http", "session": {}, "headers": []})
+    db = Mock()
+    db.scalar.side_effect = [user, None, None]
+
+    result = login(AuthIn(email="TEST@example.test", password="TemporarySessionTest123!"), request, db)
+
+    assert result["account"]["user_id"] == user.user_id
+    assert request.session["user_id"] == user.user_id
+    assert "password_hash" not in result["account"]
+
+    wrong_request = Request({"type": "http", "session": {}, "headers": []})
+    wrong_db = Mock()
+    wrong_db.scalar.return_value = user
+    with pytest.raises(HTTPException) as failed:
+        login(AuthIn(email=user.email, password="incorrect-password"), wrong_request, wrong_db)
+    assert failed.value.status_code == 401
+    assert not wrong_request.session
+
+
+def test_login_accepts_optigo_user_id_and_creates_session():
+    user = SimpleNamespace(
+        user_id="OBUUSR123456", name="Test Customer", email="test@example.test",
+        phone="9000000000", password_hash=hash_password("CustomerPassword123!"), active=True,
+    )
+    request = Request({"type": "http", "session": {}, "headers": []})
+    db = Mock()
+    db.scalar.side_effect = [user, None, None]
+
+    result = login(AuthIn(email="obuusr123456", password="CustomerPassword123!"), request, db)
+
+    assert result["account"]["user_id"] == user.user_id
+    assert request.session["user_id"] == user.user_id
+
+
+def test_registration_persists_customer_and_generated_id_can_sign_in():
+    from app import main
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    tables = [Department.__table__, StaffRole.__table__, User.__table__, Customer.__table__, Staff.__table__]
+    Base.metadata.create_all(engine, tables=tables)
+    test_app = FastAPI()
+    test_app.add_middleware(SessionMiddleware, secret_key="test-session-secret-long-enough-for-local-test")
+    test_app.post("/api/auth/register", status_code=201)(main.register)
+    test_app.post("/api/auth/login")(main.login)
+
+    def override_get_db():
+        with Session(engine) as db:
+            yield db
+
+    test_app.dependency_overrides[main.get_db] = override_get_db
+    payload = {"name": "Test Customer", "email": "signup@example.test", "phone": "9000000000", "password": "SignupPassword123!"}
+    with TestClient(test_app) as client:
+        response = client.post("/api/auth/register", json=payload)
+        assert response.status_code == 201, response.text
+        created = response.json()
+        user_id = created["account"]["user_id"]
+        assert created["account_created"] is True
+        assert user_id.startswith("OBUUSR")
+        with Session(engine) as db:
+            assert db.get(User, user_id) is not None
+            assert db.query(Customer).filter_by(user_id=user_id).one()
+
+        signed_in = client.post("/api/auth/login", json={"email": user_id, "password": payload["password"]})
+        assert signed_in.status_code == 200, signed_in.text
+        assert signed_in.json()["account"]["user_id"] == user_id
+        assert "session" in signed_in.headers.get("set-cookie", "")
+    engine.dispose()
+
+
+def test_password_reset_request_emails_hashed_one_time_code(monkeypatch):
+    from app import main
+
+    monkeypatch.setenv("EMAIL_TRANSPORT", "smtp")
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.test")
+    user = SimpleNamespace(user_id="OBUUSR123456", active=True)
+    db = Mock()
+    db.get.side_effect = [user, None]
+    monkeypatch.setattr(main, "send_password_reset_email", lambda target, code: True)
+
+    result = request_password_reset(PasswordResetRequestIn(user_id="obuusr123456"), db)
+
+    recovery = db.add.call_args.args[0]
+    assert result["message"].startswith("If that user ID is active")
+    assert recovery.user_id == user.user_id
+    assert recovery.code_hash != ""
+    assert len(recovery.code_hash) > 20
+    assert recovery.attempt_count == 0
+    db.commit.assert_called_once()
+
+
+def test_password_reset_rejects_invalid_code_then_accepts_valid_code():
+    user = SimpleNamespace(
+        user_id="OBUUSR123456", active=True, password_hash=hash_password("OldPassword123!"),
+        updated_at=datetime.now(timezone.utc),
+    )
+    recovery = PasswordResetOTP(
+        user_id=user.user_id, code_hash=hash_otp("123456"),
+        expires_at=datetime.now(timezone.utc).replace(year=datetime.now(timezone.utc).year + 1),
+        attempt_count=0, created_at=datetime.now(timezone.utc),
+    )
+    db = Mock()
+    db.get.side_effect = [user, recovery, user, recovery]
+
+    with pytest.raises(Exception) as failed:
+        confirm_password_reset(PasswordResetIn(user_id=user.user_id, code="654321", new_password="NewPassword123!"), db)
+    assert getattr(failed.value, "status_code", None) == 400
+    assert recovery.attempt_count == 1
+    db.commit.assert_called_once()
+
+    result = confirm_password_reset(PasswordResetIn(user_id=user.user_id, code="123456", new_password="NewPassword123!"), db)
+    assert result["password_reset"] is True
+    assert verify_password("NewPassword123!", user.password_hash)
+    db.delete.assert_called_once_with(recovery)
 
 
 def test_otp_hash_is_not_the_otp():
@@ -40,6 +184,25 @@ def test_price_quote_uses_the_current_rule_and_rounds_to_currency():
     assert matched_rule is rule
 
 
+def test_shipping_offers_use_strict_original_inr_thresholds_and_stack():
+    at_first_threshold = apply_shipping_offers(Decimal("500.00"), "INR")
+    above_first_threshold = apply_shipping_offers(Decimal("500.01"), "INR")
+    at_second_threshold = apply_shipping_offers(Decimal("1000.00"), "INR")
+    above_second_threshold = apply_shipping_offers(Decimal("1200.00"), "INR")
+    non_inr = apply_shipping_offers(Decimal("1200.00"), "USD")
+
+    assert at_first_threshold["total"] == Decimal("500.00")
+    assert above_first_threshold["discount"] == Decimal("25.00")
+    assert above_first_threshold["total"] == Decimal("475.01")
+    assert [offer["code"] for offer in at_second_threshold["discounts"]] == ["SHIP5"]
+    assert at_second_threshold["total"] == Decimal("950.00")
+    assert [offer["code"] for offer in above_second_threshold["discounts"]] == ["SHIP5", "SHIP50"]
+    assert above_second_threshold["discount"] == Decimal("110.00")
+    assert above_second_threshold["total"] == Decimal("1090.00")
+    assert non_inr["discount"] == Decimal("0.00")
+    assert non_inr["total"] == Decimal("1200.00")
+
+
 def test_public_quote_is_the_exact_booking_charge():
     rule = SimpleNamespace(
         rate_parameters={"base_charge": "250", "per_kg": "20"},
@@ -55,9 +218,71 @@ def test_public_quote_is_the_exact_booking_charge():
     )
 
     assert result["amount"] == "310.00"
+    assert result["subtotal"] == "310.00"
+    assert result["discount"] == "0.00"
+    assert result["discounts"] == []
     assert result["total"] == "310.00"
     assert result["tax"] == "0.00"
     assert result["is_final_charge"] is True
+
+
+def test_public_quote_includes_both_eligible_offers_in_the_payable_total():
+    rule = SimpleNamespace(
+        rate_parameters={"base_charge": "1200", "per_kg": "0"},
+        currency="INR",
+        version="STD-INR-2026",
+    )
+    db = Mock()
+    db.scalar.return_value = rule
+
+    result = public_pricing_quote(
+        PriceQuoteIn(weight_kg="1", delivery_type_code="STANDARD", destination_zone="LOCAL"),
+        db,
+    )
+
+    assert result["subtotal"] == "1200.00"
+    assert result["discount"] == "110.00"
+    assert [offer["code"] for offer in result["discounts"]] == ["SHIP5", "SHIP50"]
+    assert result["amount"] == result["total"] == "1090.00"
+    assert result["is_final_charge"] is True
+
+
+def test_booking_persists_discounted_charge_and_invoice_total(monkeypatch):
+    import app.services as services
+
+    rule = SimpleNamespace(
+        rate_parameters={"base_charge": "1200", "per_kg": "0"},
+        currency="INR",
+        pricing_rule_id="TEST-RULE",
+    )
+    db = Mock()
+    db.scalar.return_value = rule
+    ids = iter(f"TEST-{index}" for index in range(10))
+    monkeypatch.setattr(services, "new_id", lambda *args, **kwargs: next(ids))
+    monkeypatch.setattr(services, "add_location_and_history", lambda *args, **kwargs: None)
+    address = {
+        "line1": "10 Test Road", "city": "Pune", "state": "Maharashtra",
+        "postal_code": "411001", "country": "IN", "contact_name": "Test Recipient",
+        "contact_phone": "9000000000",
+    }
+
+    shipment = create_booking(
+        db,
+        SimpleNamespace(customer_id="TEST-CUSTOMER"),
+        SimpleNamespace(user_id="TEST-ACTOR"),
+        address,
+        address,
+        {
+            "weight_kg": "1", "length_cm": "10", "width_cm": "10", "height_cm": "10",
+            "delivery_type_code": "STANDARD", "destination_zone": "LOCAL", "payment_mode": "CASH",
+        },
+    )
+
+    invoice = next(call.args[0] for call in db.add.call_args_list if isinstance(call.args[0], Invoice))
+    assert shipment.charge == Decimal("1090.00")
+    assert shipment.cod_amount_due == Decimal("1090.00")
+    assert invoice.subtotal == Decimal("1200.00")
+    assert invoice.total == Decimal("1090.00")
 
 
 def test_razorpay_checkout_requires_test_keys(monkeypatch):
@@ -66,3 +291,37 @@ def test_razorpay_checkout_requires_test_keys(monkeypatch):
     assert not razorpay_test_keys_ready()
     monkeypatch.setenv("RAZORPAY_KEY_ID", "rzp_test_example")
     assert razorpay_test_keys_ready()
+
+
+def test_simulated_payment_requires_explicit_nonproduction_opt_in(monkeypatch):
+    monkeypatch.setenv("DEMO_ONLINE_ENABLED", "false")
+    monkeypatch.setenv("OPTIGO_ENV", "development")
+    assert not demo_online_enabled()
+    monkeypatch.setenv("DEMO_ONLINE_ENABLED", "true")
+    assert demo_online_enabled()
+    monkeypatch.setenv("OPTIGO_ENV", "production")
+    assert not demo_online_enabled()
+
+
+def test_production_configuration_fails_closed(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://optigo:example@db.example.test/optigo")
+    monkeypatch.setenv("SESSION_SECRET", "a-unique-test-session-secret-that-is-long-enough")
+    monkeypatch.setenv("OPTIGO_ENV", "production")
+    monkeypatch.setenv("COOKIE_SECURE", "true")
+    monkeypatch.setenv("FRONTEND_ORIGINS", "https://example.test")
+    monkeypatch.setenv("DEMO_ONLINE_ENABLED", "true")
+    with pytest.raises(RuntimeError, match="cannot be enabled in production"):
+        validate_startup_configuration()
+
+
+def test_location_lookup_failure_keeps_manual_entry_available(monkeypatch):
+    from app import main
+
+    def unavailable(*_args, **_kwargs):
+        raise TimeoutError("provider unavailable")
+
+    monkeypatch.setattr(main, "external_json", unavailable)
+    result = location_cities("Uttarakhand")
+    assert result["cities"] == []
+    assert result["available"] is False
+    assert "manually" in result["message"]

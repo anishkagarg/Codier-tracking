@@ -59,6 +59,32 @@ def price_for_weight(db: Session, delivery_type: str, zone: str, weight: Decimal
     return money(base + per_kg * weight), rule
 
 
+def apply_shipping_offers(subtotal: Decimal, currency: str) -> dict:
+    """Calculate the public INR shipping offers from the undiscounted quote."""
+    subtotal = money(subtotal)
+    discounts = []
+    if currency.strip().upper() == "INR":
+        if subtotal > Decimal("500.00"):
+            discounts.append({
+                "code": "SHIP5",
+                "label": "5% off shipping above ₹500",
+                "amount": money(subtotal * Decimal("0.05")),
+            })
+        if subtotal > Decimal("1000.00"):
+            discounts.append({
+                "code": "SHIP50",
+                "label": "₹50 off shipping above ₹1,000",
+                "amount": Decimal("50.00"),
+            })
+    discount = money(sum((offer["amount"] for offer in discounts), Decimal("0.00")))
+    return {
+        "subtotal": subtotal,
+        "discount": discount,
+        "total": money(max(Decimal("0.00"), subtotal - discount)),
+        "discounts": discounts,
+    }
+
+
 def create_notification(db: Session, shipment: Shipment, type_code: str, message: str) -> Notification | None:
     """Record an in-app notification without making shipment writes depend on it.
 
@@ -103,6 +129,32 @@ def send_email_if_configured(db: Session, shipment: Shipment, message: str) -> b
     email["From"] = os.getenv("SMTP_FROM") or os.getenv("SMTP_USERNAME")
     email["To"] = user.email
     email.set_content(message)
+    try:
+        with smtplib.SMTP(os.getenv("SMTP_HOST"), int(os.getenv("SMTP_PORT", "587")), timeout=10) as client:
+            client.starttls()
+            if os.getenv("SMTP_USERNAME"):
+                client.login(os.getenv("SMTP_USERNAME"), os.getenv("SMTP_PASSWORD", ""))
+            client.send_message(email)
+        return True
+    except Exception:
+        return False
+
+
+def send_password_reset_email(user: User, code: str) -> bool:
+    """Deliver a short-lived account recovery code only through configured SMTP."""
+    if os.getenv("EMAIL_TRANSPORT", "in_app").lower() != "smtp" or not os.getenv("SMTP_HOST"):
+        return False
+    sender = os.getenv("SMTP_FROM") or os.getenv("SMTP_USERNAME")
+    if not sender:
+        return False
+    email = EmailMessage()
+    email["Subject"] = "Your OptiGo password reset code"
+    email["From"] = sender
+    email["To"] = user.email
+    email.set_content(
+        f"Hello {user.name},\n\nYour OptiGo password reset code is {code}. "
+        "It expires in 10 minutes. If you did not request this, you can ignore this email.\n"
+    )
     try:
         with smtplib.SMTP(os.getenv("SMTP_HOST"), int(os.getenv("SMTP_PORT", "587")), timeout=10) as client:
             client.starttls()
@@ -231,7 +283,9 @@ def create_booking(db: Session, customer: Customer, actor: UserLike, sender: dic
     delivery_type = parcel["delivery_type_code"]
     zone = parcel.get("destination_zone", "LOCAL")
     weight = Decimal(str(parcel["weight_kg"]))
-    charge, rule = price_for_weight(db, delivery_type, zone, weight)
+    subtotal, rule = price_for_weight(db, delivery_type, zone, weight)
+    pricing = apply_shipping_offers(subtotal, rule.currency)
+    charge = pricing["total"]
     now = datetime.now(timezone.utc)
     eta_days = 1 if delivery_type == "SAME_DAY" else (2 if delivery_type == "EXPRESS" else 5)
     eta = now + timedelta(days=eta_days)
@@ -247,7 +301,7 @@ def create_booking(db: Session, customer: Customer, actor: UserLike, sender: dic
     db.add(shipment)
     db.flush()
     add_location_and_history(db, shipment, actor, "BOOKED", sender_address.city, "Customer booking created")
-    invoice = Invoice(invoice_no=new_id(db, Invoice, "invoice_no", "OBUINV"), shipment_id=shipment.shipment_id, issued_at=now, subtotal=charge, tax=Decimal("0.00"), total=charge, currency=rule.currency, payment_status_code="PENDING", preferred_payment_mode=parcel.get("payment_mode", "RAZORPAY"))
+    invoice = Invoice(invoice_no=new_id(db, Invoice, "invoice_no", "OBUINV"), shipment_id=shipment.shipment_id, issued_at=now, subtotal=subtotal, tax=Decimal("0.00"), total=charge, currency=rule.currency, payment_status_code="PENDING", preferred_payment_mode=parcel.get("payment_mode", "RAZORPAY"))
     db.add(invoice)
     return shipment
 

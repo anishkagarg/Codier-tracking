@@ -1,4 +1,4 @@
-const API = window.OPTIGO_API_BASE || "http://127.0.0.1:8000";
+const API = window.OPTIGO_API_BASE || "";
 const state = { account: null, view: "dashboard", pendingBooking: null };
 let startupReady = Promise.resolve();
 const ROLE_VIEWS = {
@@ -16,18 +16,38 @@ const ROLE_VIEWS = {
 const $ = (selector) => document.querySelector(selector);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
 const money = (value, currency="INR") => `${currency} ${Number(value || 0).toLocaleString("en-IN", {minimumFractionDigits:2, maximumFractionDigits:2})}`;
+const pricingSavingsMarkup = (quote) => Number(quote?.discount || 0) > 0
+  ? `<small class="price-savings">You save ${money(quote.discount, quote.currency)}${quote.discounts?.length ? ` with ${quote.discounts.map((offer) => esc(offer.label)).join(" + ")}` : ""}</small><small class="price-subtotal">Before offers: ${money(quote.subtotal, quote.currency)}</small>`
+  : "";
 const statusClass = (s) => `status-${String(s || "").toLowerCase().replaceAll("_", "-")}`;
 function toast(message, error=false){const node=$("#toast");node.textContent=message==="Order created successfully"?"Order placed successfully":message;node.style.background=error?"var(--failed)":"var(--text)";node.classList.add("show");setTimeout(()=>node.classList.remove("show"),3300)}
 async function api(path, options={}){const headers={"Content-Type":"application/json",...(options.headers||{})};let bookingForm=null;if(path==="/api/shipments"&&options.method==="POST"){bookingForm=$("#booking-form");if(bookingForm){const requestBody=options.body||"";if(!bookingForm.dataset.idempotencyKey||bookingForm.dataset.bookingPayload!==requestBody){bookingForm.dataset.idempotencyKey=crypto.randomUUID();bookingForm.dataset.bookingPayload=requestBody}headers["Idempotency-Key"]=bookingForm.dataset.idempotencyKey}}const response=await fetch(`${API}${path}`,{...options,credentials:"include",headers});let data={};try{data=await response.json()}catch{}if(!response.ok)throw new Error(data.detail||"The request could not be completed");if(bookingForm){delete bookingForm.dataset.idempotencyKey;delete bookingForm.dataset.bookingPayload;}return data}
 function formatDate(value){return value?new Date(value).toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"}):"—"}
-function renderAuth(mode="login"){const register=mode==="register";$("#login-form").classList.toggle("hidden",register);$("#register-form").classList.toggle("hidden",!register);$("#auth-eyebrow").textContent=register?"NEW CUSTOMER":"WELCOME BACK";$("#auth-title").textContent=register?"Create your OptiGo account":"Sign in to your workspace";$("#auth-subtitle").textContent=register?"Book and follow every shipment from one place.":"Use your OptiGo account to continue.";$("#auth-error").textContent="";$("#auth-error").classList.remove("show");$("#auth-switch").innerHTML=register?"Already have an account? <button type=\"button\" data-auth-mode=\"login\">Sign in</button>":"New to OptiGo? <button type=\"button\" data-auth-mode=\"register\">Create an account</button>"}
+function renderAuth(mode="login"){
+  const forms={login:"#login-form",register:"#register-form",forgot:"#forgot-request-form",reset:"#forgot-confirm-form"};
+  Object.entries(forms).forEach(([name,selector])=>$(selector).classList.toggle("hidden",name!==mode));
+  const titles={login:["Sign in to OptiGo","Use your user ID or email and password."],register:["Create your OptiGo account","Set up your account to book and follow shipments."],forgot:["Reset your password","Enter your OptiGo user ID. We’ll email a one-time reset code to the address on your account."],reset:["Choose a new password","Enter the six-digit code from your email and create a new password."]};
+  $("#auth-title").textContent=titles[mode][0];
+  $("#auth-subtitle").textContent=titles[mode][1];
+  $("#auth-error").textContent="";
+  $("#auth-error").classList.remove("show","success");
+  document.querySelectorAll(".auth-tabs [data-auth-mode]").forEach(tab=>tab.classList.toggle("active",tab.dataset.authMode===mode));
+  $("#auth-switch").classList.toggle("hidden",mode==="forgot"||mode==="reset");
+  $("#auth-switch").innerHTML=mode==="register"?"Already have an account? <button type=\"button\" data-auth-mode=\"login\">Sign in</button>":"New to OptiGo? <button type=\"button\" data-auth-mode=\"register\">Create an account</button>";
+}
 function showAuthMessage(message,success=false){const node=$("#auth-error");node.textContent=message;node.classList.toggle("success",success);node.classList.add("show")}
 function showAuthError(message){showAuthMessage(message,false)}
 function openPublicAuth(mode="login"){
-  $("#landing-shell").classList.add("hidden");
+  $("#landing-shell").inert=true;
   $("#auth-shell").classList.remove("hidden");
   renderAuth(mode);
-  window.scrollTo({top:0,behavior:"instant"});
+  const firstInput=$("#auth-shell form:not(.hidden) input");
+  setTimeout(()=>firstInput?.focus({preventScroll:true}),30);
+}
+function closePublicAuth(){
+  $("#auth-shell").classList.add("hidden");
+  $("#landing-shell").inert=false;
+  $("[data-landing-action=login]")?.focus({preventScroll:true});
 }
 function scrollToLandingSection(selector, focusSelector){
   const section=$(selector);
@@ -95,7 +115,7 @@ async function completeDemoPayment(shipmentId, resultNode){
 }
 function booking(){
   setTitle("New booking");
-  $("#view").innerHTML='<form id="booking-form" class="panel" novalidate><h3>Sender details</h3>'+locationFields("sender","Sender")+'<h3 style="margin-top:28px">Receiver details</h3>'+locationFields("receiver","Receiver")+'<h3 style="margin-top:28px">Parcel details</h3><div class="form-grid three"><div class="field"><label>Weight (kg)<input name="weight_kg" type="number" step="0.001" min="0.001" required></label></div><div class="field"><label>Length (cm)<input name="length_cm" type="number" step="0.01" min="0.01" required></label></div><div class="field"><label>Width (cm)<input name="width_cm" type="number" step="0.01" min="0.01" required></label></div><div class="field"><label>Height (cm)<input name="height_cm" type="number" step="0.01" min="0.01" required></label></div><div class="field"><label>Delivery type<select name="delivery_type_code" required><option value="STANDARD">Standard</option><option value="EXPRESS">Express</option></select></label></div><div class="field" style="display:flex;align-items:end;gap:20px"><label style="display:flex;align-items:center;gap:8px"><input name="fragile" type="checkbox" style="width:auto"> Fragile</label><label style="display:flex;align-items:center;gap:8px"><input name="priority" type="checkbox" style="width:auto"> Priority</label></div></div><section class="price-summary" aria-live="polite"><strong>Estimated price</strong><div id="booking-price">Enter the parcel weight to calculate your price.</div></section><fieldset class="payment-choice"><legend>Payment mode</legend><label><input type="radio" name="payment_mode" value="CASH" required> Cash on delivery</label><label><input type="radio" name="payment_mode" value="DEMO" required> Online payment</label></fieldset><div class="form-actions"><button class="button primary" type="submit">Place order <span>→</span></button></div><div id="booking-result" aria-live="polite"></div></form>';
+  $("#view").innerHTML='<form id="booking-form" class="panel" novalidate><p class="callout">Address suggestions send the text you type (such as street, city and state) to external location providers. You can skip suggestions and enter every address field manually.</p><h3>Sender details</h3>'+locationFields("sender","Sender")+'<h3 style="margin-top:28px">Receiver details</h3>'+locationFields("receiver","Receiver")+'<h3 style="margin-top:28px">Parcel details</h3><div class="form-grid three"><div class="field"><label>Weight (kg)<input name="weight_kg" type="number" step="0.001" min="0.001" required></label></div><div class="field"><label>Length (cm)<input name="length_cm" type="number" step="0.01" min="0.01" required></label></div><div class="field"><label>Width (cm)<input name="width_cm" type="number" step="0.01" min="0.01" required></label></div><div class="field"><label>Height (cm)<input name="height_cm" type="number" step="0.01" min="0.01" required></label></div><div class="field"><label>Delivery type<select name="delivery_type_code" required><option value="STANDARD">Standard</option><option value="EXPRESS">Express</option></select></label></div><div class="field" style="display:flex;align-items:end;gap:20px"><label style="display:flex;align-items:center;gap:8px"><input name="fragile" type="checkbox" style="width:auto"> Fragile</label><label style="display:flex;align-items:center;gap:8px"><input name="priority" type="checkbox" style="width:auto"> Priority</label></div></div><section class="price-summary" aria-live="polite"><strong>Exact shipping charge</strong><div id="booking-price">Enter parcel details to calculate the exact charge.</div></section><fieldset class="payment-choice"><legend>Payment mode</legend><label><input type="radio" name="payment_mode" value="CASH" required> Cash on delivery</label><label><input type="radio" name="payment_mode" value="DEMO" required> Simulated online payment (no money collected)</label></fieldset><div class="form-actions"><button class="button primary" type="submit">Place order <span>→</span></button></div><div id="booking-result" aria-live="polite"></div></form>';
   wireLocationFields("sender");
   wireLocationFields("receiver");
   const form=$("#booking-form");
@@ -107,7 +127,7 @@ function booking(){
     const demo=form.querySelector('[name="payment_mode"][value="DEMO"]');
     if(!demo)return;
     demo.disabled=!options.demo_online_available;
-    if(!options.demo_online_available)demo.parentElement.append(" (online payment unavailable; use cash)");
+    demo.parentElement.lastChild.textContent = options.demo_online_available ? " Simulated online payment (no money collected)" : " Online payment unavailable; use cash";
   }).catch(()=>{
     const demo=form.querySelector('[name="payment_mode"][value="DEMO"]');
     if(demo)demo.disabled=true;
@@ -124,8 +144,8 @@ function booking(){
     try{
       const result=await api("/api/pricing/quote",{method:"POST",body:JSON.stringify({weight_kg:weight,delivery_type_code:delivery,destination_zone:"LOCAL"})});
       if(sequence!==quoteSequence)return;
-      quote={weight,delivery,amount:result.amount,currency:result.currency};
-      $("#booking-price").innerHTML='<strong>'+money(result.amount,result.currency)+'</strong><small>Calculated from the current rate for '+esc(delivery.toLowerCase().replaceAll("_"," "))+' delivery.</small>';
+      quote={weight,delivery,amount:result.amount,subtotal:result.subtotal??result.amount,discount:result.discount??"0.00",discounts:result.discounts||[],currency:result.currency};
+      $("#booking-price").innerHTML='<strong>'+money(result.amount,result.currency)+'</strong><small>Exact payable charge for '+esc(delivery.toLowerCase().replaceAll("_"," "))+' delivery.</small>'+pricingSavingsMarkup(quote);
     }catch(err){
       if(sequence!==quoteSequence)return;
       quote=null;
@@ -152,7 +172,7 @@ function booking(){
     try{
       const shipment=await api("/api/shipments",{method:"POST",body:JSON.stringify(payload)});
       const demo=payload.payment_mode==="DEMO";
-      $("#booking-result").innerHTML='<div class="result-card"><h4>Order placed successfully</h4><div>Your tracking ID is <strong>'+esc(shipment.tracking_id)+'</strong>.</div><div>Shipping price: <strong>'+money(shipment.charge,shipment.currency)+'</strong></div><div class="muted">Expected delivery: '+formatDate(shipment.expected_delivery)+'</div><div>Payment mode: '+(demo?"Online payment":"Cash on delivery")+'</div>'+(demo?'<button type="button" class="button primary" id="complete-demo-payment">Continue to online payment</button><div id="booking-payment-result"></div>':'<div class="muted">Pay the shipping charge in cash when the parcel is delivered.</div>')+'</div>';
+      $("#booking-result").innerHTML='<div class="result-card"><h4>Order placed successfully</h4><div>Your tracking ID is <strong>'+esc(shipment.tracking_id)+'</strong>.</div><div>Shipping price: <strong>'+money(shipment.charge,shipment.currency)+'</strong></div>'+pricingSavingsMarkup(quote)+'<div class="muted">Expected delivery: '+formatDate(shipment.expected_delivery)+'</div><div>Payment mode: '+(demo?"Simulated online payment":"Cash on delivery")+'</div>'+(demo?'<p class="muted">Demo only: no money is collected, transferred or recorded.</p><button type="button" class="button primary" id="complete-demo-payment">Run simulated checkout</button><div id="booking-payment-result"></div>':'<div class="muted">Pay the shipping charge in cash when the parcel is delivered.</div>')+'</div>';
       form.reset();
       quote=null;
       $("#booking-price").textContent="Enter the parcel weight to calculate your price.";
@@ -274,6 +294,7 @@ async function handleTaskAction(task){
   }catch(err){toast(err.message,true)}
 }
 document.addEventListener("click",(e)=>{
+  if(e.target.closest("[data-auth-close]")){e.preventDefault();closePublicAuth();return}
   const landingAction=e.target.closest("[data-landing-action]")?.dataset.landingAction;
   if(landingAction){
     e.preventDefault();
@@ -292,6 +313,16 @@ document.addEventListener("click",(e)=>{
   const task=e.target.closest("[data-task-action]");
   if(task)handleTaskAction(task);
 });
+document.addEventListener("keydown",(event)=>{
+  const authShell=$("#auth-shell");
+  if(authShell.classList.contains("hidden"))return;
+  if(event.key==="Escape"){closePublicAuth();return}
+  if(event.key!=="Tab")return;
+  const focusable=[...authShell.querySelectorAll('button:not([disabled]),a[href],input:not([disabled])')].filter(node=>node.getClientRects().length>0);
+  const first=focusable[0],last=focusable[focusable.length-1];
+  if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus()}
+  else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus()}
+});
 function startLandingBooking(form){
   if(!form)return;
   if(!form.checkValidity()){form.querySelector(":invalid")?.focus();return}
@@ -301,7 +332,8 @@ function startLandingBooking(form){
 }
 document.addEventListener("click",(e)=>{const read=e.target.closest("[data-notification-read]");if(read){(async()=>{try{await api(`/api/notifications/${read.dataset.notificationRead}/read`,{method:"POST"});await notifications();toast("Notification marked as read")}catch(err){toast(err.message,true)}})()}const update=e.target.closest("[data-complaint-update]");if(update){const select=document.querySelector(`[data-complaint-status="${CSS.escape(update.dataset.complaintUpdate)}"]`);(async()=>{try{await api(`/api/complaints/${update.dataset.complaintUpdate}`,{method:"PATCH",body:JSON.stringify({status_code:select.value})});await complaints();toast("Complaint status updated")}catch(err){toast(err.message,true)}})()}});
 document.addEventListener("submit",async(e)=>{
-  if(e.target.id!=="login-form"&&e.target.id!=="register-form")return;
+  const authForms=["login-form","register-form","forgot-request-form","forgot-confirm-form"];
+  if(!authForms.includes(e.target.id))return;
   e.preventDefault();
   const form=e.target, button=form.querySelector('[type="submit"]'), fields=new FormData(form);
   button.disabled=true;
@@ -309,13 +341,31 @@ document.addEventListener("submit",async(e)=>{
   try{
     await startupReady;
     $("#auth-error").classList.remove("show");
+    let result;
+    if(form.id==="forgot-request-form"){
+      const payload=Object.fromEntries(fields);
+      result=await api("/api/auth/password-reset/request",{method:"POST",body:JSON.stringify(payload)});
+      renderAuth("reset");
+      $("#forgot-confirm-form [name=user_id]").value=payload.user_id.trim().toUpperCase();
+      showAuthMessage(result.message,true);
+      return;
+    }
+    if(form.id==="forgot-confirm-form"){
+      const payload=Object.fromEntries(fields);
+      result=await api("/api/auth/password-reset/confirm",{method:"POST",body:JSON.stringify(payload)});
+      renderAuth("login");
+      $("#login-form [name=email]").value=payload.user_id.trim().toUpperCase();
+      showAuthMessage(result.message,true);
+      $("#login-form [name=password]").focus();
+      return;
+    }
     const path=form.id==="login-form"?"/api/auth/login":"/api/auth/register";
-    const result=await api(path,{method:"POST",body:JSON.stringify(Object.fromEntries(fields))});
+    result=await api(path,{method:"POST",body:JSON.stringify(Object.fromEntries(fields))});
     if(form.id==="register-form"){
       const email=fields.get("email");
       renderAuth("login");
       $("#login-form [name=email]").value=email;
-      showAuthMessage("Account Created Successfully. Please sign in to continue.",true);
+      showAuthMessage(`Account created. Your OptiGo user ID is ${result.account.user_id}. Please sign in to continue.`,true);
       $("#login-form [name=password]").focus();
       return;
     }
@@ -332,7 +382,7 @@ $("#logout-button").onclick=()=>{$("#logout-modal").classList.remove("hidden");$
 renderAuth("login");
 startupReady=api("/api/auth/logout",{method:"POST"}).catch(()=>{});
 $("#landing-booking-form").onsubmit=(event)=>{event.preventDefault();startLandingBooking(event.currentTarget)};
-(()=>{const form=$("#landing-booking-form"),price=$("#landing-price");let timer;async function quote(){const sender=form.elements.sender_postal_code.value,receiver=form.elements.receiver_postal_code.value,weight=Number(form.elements.weight_kg.value);if(!/^\d{6}$/.test(sender)||!/^\d{6}$/.test(receiver)||!Number.isFinite(weight)||weight<=0){price.textContent="Enter both 6-digit PIN codes and parcel weight to see the exact charge.";return}price.textContent="Calculating exact charge…";try{const response=await fetch(`${API}/api/public/pricing/quote`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({weight_kg:weight,delivery_type_code:form.elements.delivery_type_code.value,destination_zone:"LOCAL"})});const data=await response.json();if(!response.ok)throw new Error(data.detail||"Charge unavailable");price.innerHTML=`Exact payable charge: <strong>${money(data.total??data.amount,data.currency)}</strong><small>${sender} → ${receiver} · includes all currently applicable charges.</small>`}catch(error){price.textContent="Exact charge is unavailable right now. Please try again."}}function schedule(){clearTimeout(timer);timer=setTimeout(quote,300)}["sender_postal_code","receiver_postal_code","weight_kg","delivery_type_code"].forEach(name=>form.elements[name].addEventListener(name==="delivery_type_code"?"change":"input",schedule));})();
+(()=>{const form=$("#landing-booking-form"),price=$("#landing-price");let timer;async function quote(){const sender=form.elements.sender_postal_code.value,receiver=form.elements.receiver_postal_code.value,weight=Number(form.elements.weight_kg.value);if(!/^\d{6}$/.test(sender)||!/^\d{6}$/.test(receiver)||!Number.isFinite(weight)||weight<=0){price.textContent="Enter both 6-digit PIN codes and parcel weight to see the exact charge.";return}price.textContent="Calculating exact charge…";try{const response=await fetch(`${API}/api/public/pricing/quote`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({weight_kg:weight,delivery_type_code:form.elements.delivery_type_code.value,destination_zone:"LOCAL"})});const data=await response.json();if(!response.ok)throw new Error(data.detail||"Charge unavailable");const quote={subtotal:data.subtotal??data.total??data.amount,discount:data.discount??"0.00",discounts:data.discounts||[],currency:data.currency};price.innerHTML=`Exact payable charge: <strong>${money(data.total??data.amount,data.currency)}</strong><small>${sender} → ${receiver} · all eligible offers are applied.</small>${pricingSavingsMarkup(quote)}`}catch(error){price.textContent="Exact charge is unavailable right now. Please try again."}}function schedule(){clearTimeout(timer);timer=setTimeout(quote,300)}["sender_postal_code","receiver_postal_code","weight_kg","delivery_type_code"].forEach(name=>form.elements[name].addEventListener(name==="delivery_type_code"?"change":"input",schedule));})();
 $("#public-track-form").onsubmit=async(event)=>{
   event.preventDefault();
   const input=$("#public-track-input"),result=$("#public-track-result"),button=event.currentTarget.querySelector("button");

@@ -20,13 +20,29 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
+    env:
+      OPTIGO_API_BASE: ${{ vars.OPTIGO_API_BASE || 'https://optigo-api.onrender.com' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Prepare static frontend
-        run: cp -r frontend ./site
+        run: |
+          cp -r frontend ./site
+          python - <<'PY'
+          import json, os
+          api_base = os.environ["OPTIGO_API_BASE"].rstrip("/")
+          if not api_base.startswith("https://"):
+              raise SystemExit("OPTIGO_API_BASE must be an HTTPS URL")
+          with open("site/config.js", "w", encoding="utf-8") as config:
+              config.write("window.OPTIGO_API_BASE = " + json.dumps(api_base) + ";\n")
+          index_path = "site/index.html"
+          with open(index_path, encoding="utf-8") as page:
+              html = page.read().replace("config.js?v=api-connection-20261001-2", "config.js?v=" + os.environ["GITHUB_SHA"])
+          with open(index_path, "w", encoding="utf-8") as page:
+              page.write(html)
+          PY
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:

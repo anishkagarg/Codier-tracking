@@ -10,6 +10,8 @@ services:
     envVars:
       - key: DATABASE_URL
         sync: false
+      - key: OPTIGO_ENV
+        value: production
       - key: SESSION_SECRET
         generateValue: true
       - key: FRONTEND_ORIGINS
@@ -20,6 +22,8 @@ services:
         value: "false"
       - key: RAZORPAY_MODE
         value: test
+      - key: DEMO_ONLINE_ENABLED
+        value: "false"
       - key: EMAIL_TRANSPORT
         value: in_app
       - key: SMS_TRANSPORT

@@ -17,7 +17,7 @@ async function loadCitiesForState(prefix) {
   const fallback = Object.keys(((window.OPTIGO_INDIA_LOCATIONS || {})[state.value] || {})).sort();
   if (!state.value.trim()) { cities.innerHTML = ''; return; }
   try {
-    const response = await fetch((window.OPTIGO_API_BASE || 'http://127.0.0.1:8000') + '/api/locations/cities?state=' + encodeURIComponent(state.value));
+    const response = await fetch((window.OPTIGO_API_BASE || '') + '/api/locations/cities?state=' + encodeURIComponent(state.value));
     const data = await response.json();
     const values = Array.isArray(data.cities) ? data.cities : (Array.isArray(data.data) ? data.data : fallback);
     cities.innerHTML = [...new Set(values)].sort().map((name) => '<option value="' + esc(name) + '"></option>').join('');
@@ -47,7 +47,7 @@ function wireAddressLookup(prefix) {
     if (query.length < 4) { suggestions.innerHTML = ''; return; }
     timer = setTimeout(async () => {
       try {
-        const response = await fetch((window.OPTIGO_API_BASE || 'http://127.0.0.1:8000') + '/api/locations/search?q=' + encodeURIComponent(query + ', ' + (state.value || '') + ', India'));
+        const response = await fetch((window.OPTIGO_API_BASE || '') + '/api/locations/search?q=' + encodeURIComponent(query + ', ' + (state.value || '') + ', India'));
         const data = await response.json(); results = (data.features || []).filter((feature) => feature.properties && feature.properties.country === 'India');
         suggestions.innerHTML = results.map((feature, index) => '<button type="button" class="address-suggestion" data-address-index="' + index + '">' + esc(feature.properties.name || feature.properties.street || 'Address') + '<small>' + esc(feature.properties.state || '') + (feature.properties.postcode ? ' · ' + esc(feature.properties.postcode) : '') + '</small></button>').join('');
       } catch { suggestions.innerHTML = '<div class="address-suggestion-message">Address search is temporarily unavailable.</div>'; }

@@ -16,12 +16,14 @@ except ImportError:
                 continue
             key, value = line.split("=", 1)
             os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg://postgres:postgres@localhost:5432/seneca_phase3")
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 Base = declarative_base()
 
 
 def make_engine(url: str | None = None):
-    url = url or DATABASE_URL
+    url = (url or DATABASE_URL).strip()
+    if not url:
+        raise RuntimeError("DATABASE_URL is required. Configure it in backend/.env or the service environment.")
     kwargs = {"future": True, "pool_pre_ping": True}
     if url.startswith("sqlite"):
         kwargs["connect_args"] = {"check_same_thread": False}
