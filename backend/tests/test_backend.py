@@ -326,6 +326,79 @@ def test_phase2_status_transitions_are_explicit():
     assert "DELIVERED" not in STATUS_TRANSITIONS["BOOKED"]
 
 
+def test_delivery_agent_task_query_is_limited_to_their_staff_id(monkeypatch):
+    from app import main
+
+    user = SimpleNamespace(user_id="DELIVERYUSER")
+    staff = SimpleNamespace(staff_id="DELIVERY001", role_code="DELIVERY_AGENT")
+    monkeypatch.setattr(main, "required_staff", lambda *_args, **_kwargs: (user, staff))
+    monkeypatch.setattr(main, "account_view", lambda *_args: {})
+    db = Mock()
+    db.scalars.return_value.all.return_value = []
+
+    result = main.tasks(Request({"type": "http", "session": {}, "headers": []}), db)
+
+    statement = db.scalars.call_args.args[0]
+    assert statement.whereclause.left.name == "staff_id"
+    assert statement.whereclause.right.value == staff.staff_id
+    assert result["tasks"] == []
+
+
+def test_delivery_agent_shipment_list_is_limited_to_assigned_deliveries(monkeypatch):
+    from app import main
+
+    user = SimpleNamespace(user_id="DELIVERYUSER")
+    staff = SimpleNamespace(staff_id="DELIVERY001", role_code="DELIVERY_AGENT")
+    monkeypatch.setattr(main, "required_user", lambda *_args, **_kwargs: user)
+    monkeypatch.setattr(main, "staff_for", lambda *_args, **_kwargs: staff)
+    db = Mock()
+    db.scalars.return_value.all.return_value = []
+
+    assert main.list_shipments(Request({"type": "http", "session": {}, "headers": []}), search=None, db=db) == []
+
+    statement = db.scalars.call_args.args[0]
+    sql = str(statement.compile()).lower()
+    assert "shipment_assignments" in sql
+    assert "DELIVERY" in statement.compile().params.values()
+    assert staff.staff_id in statement.compile().params.values()
+
+
+@pytest.mark.parametrize("endpoint_name", ["get_shipment", "shipment_tracking_detail"])
+def test_delivery_agent_cannot_open_another_agents_shipment(monkeypatch, endpoint_name):
+    from fastapi import HTTPException
+    from app import main
+
+    user = SimpleNamespace(user_id="DELIVERYUSER")
+    staff = SimpleNamespace(staff_id="DELIVERY001", role_code="DELIVERY_AGENT")
+    shipment = SimpleNamespace(shipment_id="SHIP000001", customer_id="CUSTOMER001")
+    monkeypatch.setattr(main, "required_user", lambda *_args, **_kwargs: user)
+    monkeypatch.setattr(main, "staff_for", lambda *_args, **_kwargs: staff)
+    db = Mock()
+    db.get.return_value = shipment
+    db.scalar.return_value = None
+
+    with pytest.raises(HTTPException) as forbidden:
+        getattr(main, endpoint_name)(shipment.shipment_id, Request({"type": "http", "session": {}, "headers": []}), db)
+
+    assert forbidden.value.status_code == 404
+
+
+def test_delivery_verification_rejects_another_agents_account():
+    from app.services import verify_delivery
+
+    assignment = SimpleNamespace(assignment_id="ASSIGN001", shipment_id="SHIP000001", staff_id="ASSIGNED001", status_code="IN_PROGRESS")
+    shipment = SimpleNamespace(current_status="OUT_FOR_DELIVERY")
+    another_agent = SimpleNamespace(user_id="OTHERUSER")
+    db = Mock()
+    db.get.return_value = shipment
+    db.scalar.return_value = SimpleNamespace(staff_id="OTHER001")
+
+    with pytest.raises(PermissionError, match="Only the assigned delivery agent"):
+        verify_delivery(db, assignment, another_agent, "123456", "test")
+
+    db.scalar.assert_called_once()
+
+
 def test_price_quote_uses_the_current_rule_and_rounds_to_currency():
     rule = SimpleNamespace(rate_parameters={"base_charge": "40", "per_kg": "10"}, currency="INR")
     db = Mock()
@@ -484,7 +557,7 @@ def test_shipment_tracking_detail_returns_all_recorded_gps_points_and_hub_scans(
     from app import main
 
     user = SimpleNamespace(user_id="STAFF000001")
-    staff = SimpleNamespace(staff_id="STAFF000001")
+    staff = SimpleNamespace(staff_id="STAFF000001", role_code="TRACKING_OFFICER")
     shipment = SimpleNamespace(shipment_id="SHIP000001", customer_id="CUSTOMER001", current_status="OUT_FOR_DELIVERY")
     start = datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc)
     locations = [

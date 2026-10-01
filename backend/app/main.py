@@ -334,6 +334,16 @@ def staff_for(db: Session, user: User) -> Staff | None:
     return db.scalar(select(Staff).where(Staff.user_id == user.user_id, Staff.active.is_(True)))
 
 
+def delivery_agent_owns_shipment(db: Session, staff: Staff, shipment_id: str) -> bool:
+    if staff.role_code != "DELIVERY_AGENT":
+        return True
+    return db.scalar(select(ShipmentAssignment.assignment_id).where(
+        ShipmentAssignment.shipment_id == shipment_id,
+        ShipmentAssignment.task_type_code == "DELIVERY",
+        ShipmentAssignment.staff_id == staff.staff_id,
+    )) is not None
+
+
 def required_staff(request: Request, db: Session, roles: set[str] | None = None) -> tuple[User, Staff]:
     user = required_user(request, db)
     staff = staff_for(db, user)
@@ -853,6 +863,12 @@ def list_shipments(request: Request, search: str | None = Query(default=None), d
         if not customer:
             return []
         stmt = stmt.where(Shipment.customer_id == customer.customer_id)
+    elif staff.role_code == "DELIVERY_AGENT":
+        own_delivery_shipments = select(ShipmentAssignment.shipment_id).where(
+            ShipmentAssignment.staff_id == staff.staff_id,
+            ShipmentAssignment.task_type_code == "DELIVERY",
+        )
+        stmt = stmt.where(Shipment.shipment_id.in_(own_delivery_shipments))
     if search:
         stmt = stmt.where(Shipment.tracking_id.ilike(f"%{search.strip()}%"))
     return [shipment_view(db, s, include_private=bool(staff)) for s in db.scalars(stmt).all()]
@@ -925,7 +941,7 @@ def get_shipment(shipment_id: str, request: Request, db: Session = Depends(get_d
     shipment = db.get(Shipment, shipment_id)
     staff = staff_for(db, user)
     customer = db.scalar(select(Customer).where(Customer.user_id == user.user_id))
-    if not shipment or (not staff and (not customer or shipment.customer_id != customer.customer_id)):
+    if not shipment or (staff and not delivery_agent_owns_shipment(db, staff, shipment_id)) or (not staff and (not customer or shipment.customer_id != customer.customer_id)):
         raise HTTPException(404, "Shipment not found")
     return shipment_view(db, shipment, include_private=True)
 
@@ -937,7 +953,7 @@ def shipment_tracking_detail(shipment_id: str, request: Request, db: Session = D
     shipment = db.get(Shipment, shipment_id)
     staff = staff_for(db, user)
     customer = db.scalar(select(Customer).where(Customer.user_id == user.user_id))
-    if not shipment or (not staff and (not customer or shipment.customer_id != customer.customer_id)):
+    if not shipment or (staff and not delivery_agent_owns_shipment(db, staff, shipment_id)) or (not staff and (not customer or shipment.customer_id != customer.customer_id)):
         raise HTTPException(404, "Shipment not found")
 
     locations = db.scalars(
@@ -1321,6 +1337,8 @@ def add_location(shipment_id: str, payload: LocationIn, request: Request, db: Se
     shipment = db.get(Shipment, shipment_id)
     if not shipment:
         raise HTTPException(404, "Shipment not found")
+    if staff.role_code == "DELIVERY_AGENT" and not delivery_agent_owns_shipment(db, staff, shipment_id):
+        raise HTTPException(403, "Delivery agents can only update their assigned deliveries")
     now = datetime.now(timezone.utc)
     from .services import new_id
     location_text = payload.location_text.strip()
