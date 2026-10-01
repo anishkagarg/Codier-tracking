@@ -457,4 +457,19 @@ body:has(#auth-shell:not(.hidden)) #landing-shell{filter:blur(3px);pointer-event
 .shipment-lost-notice{margin:16px 0 0;padding:13px 15px;border:1px solid #E8B9C5;border-radius:8px;background:#FFF2F4;color:#782D43;font-size:13px}
 .shipment-lost-notice p{margin:4px 0 0;font-size:12px}
 .shipment-detail-error{margin:18px 0;padding:16px;border:1px solid #E8B9C5;border-radius:9px;background:#FFF2F4;color:#782D43}
+.shipment-delivery-proof{display:grid;gap:8px;margin:18px 0;padding:17px 19px;border:1px solid #D7E7D8;border-radius:10px;background:#F3F8F1}
+.shipment-delivery-proof h3{margin:0;font-size:15px}
+.shipment-delivery-proof p{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:0;color:#365445;font-size:13px;line-height:1.55}
+.shipment-delivery-pending{border-color:#EBDDC5;background:#FFFCF6}
+.shipment-delivery-pending p{color:#665d4d}
+.shipment-delivery-pending .button{justify-self:start;margin-top:3px}
+.notification-card.notification-otp{border-color:#E8D4AD;background:#FFFCF6}
+.notification-delivery-code{display:grid;justify-items:start;gap:4px;margin:12px 0;padding:13px 15px;border:1px solid #EBDDC5;border-radius:8px;background:#FFF7E7}
+.notification-delivery-code span{color:#665d4d;font-size:11px;font-weight:700}
+.notification-delivery-code strong{color:#0C1E36;font-size:25px;letter-spacing:.12em;font-variant-numeric:tabular-nums}
+.notification-delivery-code small{max-width:60ch}
+.warehouse-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}
+.warehouse-scan-sections{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin-bottom:18px}
+.warehouse-scan-sections>.panel{margin:0}
+@media(max-width:980px){.warehouse-scan-sections{grid-template-columns:1fr}.warehouse-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:560px){.shipment-detail-shell{padding:18px 14px}.shipment-detail-header{gap:10px}.shipment-route-card,.shipment-warehouse-scans{padding:14px}.shipment-route-stop{min-width:132px}.shipment-detail-header h2{font-size:21px}}

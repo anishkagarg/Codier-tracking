@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -513,6 +513,80 @@ def test_shipment_tracking_detail_returns_all_recorded_gps_points_and_hub_scans(
     assert [(point["latitude"], point["longitude"]) for point in points] == [(19.076, 72.8777), (19.1176, 72.906)]
     assert result["warehouse_scans"][0]["hub_name"] == "Andheri Sorting Hub"
     assert result["movement_events"][-1]["event_at"] == start.replace(hour=10).isoformat()
+    assert result["delivery_proof"] is None
+
+
+def test_customer_notifications_surface_only_live_delivery_codes(monkeypatch):
+    from app import main
+
+    user = SimpleNamespace(user_id="CUSTOMER0001")
+    customer = SimpleNamespace(customer_id="CUSTOMER0001")
+    now = datetime.now(timezone.utc)
+    notice = SimpleNamespace(
+        notification_id="NOTICE001", shipment_id="SHIP000001", type_code="OTP",
+        channel_code="IN_APP", message="Delivery code for shipment OBUTRK001: 123456. Expires soon.",
+        status_code="SENT", created_at=now, sent_at=now, read_at=None,
+    )
+    assignment = SimpleNamespace(assignment_id="ASSIGN001", status_code="IN_PROGRESS")
+    otp = SimpleNamespace(created_at=now, consumed_at=None, expires_at=now + timedelta(minutes=8), attempt_count=0)
+    monkeypatch.setattr(main, "required_user", lambda *_args: user)
+    monkeypatch.setattr(main, "staff_for", lambda *_args: None)
+    db = Mock()
+    db.get.return_value = SimpleNamespace(current_status="OUT_FOR_DELIVERY", tracking_id="OBUTRK001")
+    db.scalar.side_effect = [customer, assignment, otp]
+    db.scalars.return_value.all.return_value = [notice]
+
+    result = main.notifications(Mock(), db)
+
+    assert result["notifications"][0]["delivery_code"] == "123456"
+    assert "123456" not in result["notifications"][0]["message"]
+    assert result["notifications"][0]["code_active"] is True
+
+
+def test_staff_notifications_never_include_delivery_otp(monkeypatch):
+    from app import main
+
+    user = SimpleNamespace(user_id="STAFF000001")
+    staff = SimpleNamespace(staff_id="STAFF000001")
+    ordinary_notice = SimpleNamespace(
+        notification_id="NOTICE002", shipment_id="SHIP000001", type_code="STATUS",
+        channel_code="IN_APP", message="Shipment in transit.", status_code="SENT",
+        created_at=datetime.now(timezone.utc), sent_at=None, read_at=None,
+    )
+    monkeypatch.setattr(main, "required_user", lambda *_args: user)
+    monkeypatch.setattr(main, "staff_for", lambda *_args: staff)
+    db = Mock()
+    db.scalars.return_value.all.return_value = [ordinary_notice]
+
+    result = main.notifications(Mock(), db)
+
+    assert [item["type_code"] for item in result["notifications"]] == ["STATUS"]
+
+
+def test_warehouse_can_record_an_inter_hub_arrival(monkeypatch):
+    from app import main, services
+
+    user = SimpleNamespace(user_id="WAREHOUSEUSER")
+    staff = SimpleNamespace(staff_id="WAREHOUSE001", role_code="WAREHOUSE_OFFICER")
+    shipment = SimpleNamespace(shipment_id="SHIP000001", tracking_id="OBUTRK001", current_status="IN_TRANSIT")
+    hub = SimpleNamespace(hub_id="HUB000002", name="Pune Sorting Hub", city="Pune", state="Maharashtra", postal_code="411001", active=True)
+    delivery_assignment = SimpleNamespace(status_code="ASSIGNED")
+    payload = SimpleNamespace(shipment_id=shipment.shipment_id, hub_id=hub.hub_id, scan_type="RECEIVED")
+    ids = iter(["OBUSCN000001", "OBULOC000001"])
+    monkeypatch.setattr(main, "required_staff", lambda *_args, **_kwargs: (user, staff))
+    monkeypatch.setattr(services, "new_id", lambda *_args, **_kwargs: next(ids))
+    db = Mock()
+    db.get.side_effect = [shipment, hub]
+    db.scalar.return_value = delivery_assignment
+
+    result = main.create_warehouse_scan(payload, Mock(), db)
+
+    assert result["shipment_status"] == "IN_TRANSIT"
+    assert result["next_task"] == "IN_TRANSIT"
+    assert db.add.call_count == 2
+    location = db.add.call_args_list[1].args[0]
+    assert location.scan_type == "WAREHOUSE"
+    assert location.location_text == "Pune Sorting Hub, Pune, Maharashtra 411001"
 
 
 def test_shipment_tracking_detail_hides_another_customers_shipment(monkeypatch):

@@ -9,6 +9,7 @@ import hmac
 import logging
 import json
 import os
+import re
 import secrets
 from urllib.parse import quote
 from urllib.request import Request as UrlRequest, urlopen
@@ -23,7 +24,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from typing import Literal
 
 from .db import SessionLocal, engine, get_db
-from .models import Address, AdminRecoveryState, AssignmentStatus, BookingIdempotency, CodCollection, Complaint, Customer, DeliveryType, Department, FinancePosition, FinanceTransaction, Hub, Invoice, LocationUpdate, Notification, PasswordResetOTP, Payment, PricingRule, Refund, Route, Shipment, ShipmentAssignment, ShipmentStatusHistory, Staff, StaffRole, User, Vehicle, WarehouseScan
+from .models import Address, AdminRecoveryState, AssignmentStatus, BookingIdempotency, CodCollection, Complaint, Customer, DeliveryOTP, DeliveryType, Department, FinancePosition, FinanceTransaction, Hub, Invoice, LocationUpdate, Notification, PasswordResetOTP, Payment, PricingRule, ProofOfDelivery, Refund, Route, Shipment, ShipmentAssignment, ShipmentStatusHistory, Staff, StaffRole, User, Vehicle, WarehouseScan
 from .security import hash_otp, hash_password, verify_otp, verify_password
 from .services import add_location_and_history, apply_shipping_offers, assign_task, auto_assign_task, create_booking, delivery_assessment, haversine_km, latest_gps_location, new_id, optimize_route, parse_gps_location, price_for_weight, public_tracking, request_delivery_otp, send_password_reset_email, transition_assignment, verify_delivery
 
@@ -695,13 +696,40 @@ def notifications(request: Request, db: Session = Depends(get_db)):
     user = required_user(request, db)
     customer = db.scalar(select(Customer).where(Customer.user_id == user.user_id))
     staff = staff_for(db, user)
-    stmt = select(Notification).order_by(Notification.created_at.desc()).limit(100)
+    stmt = select(Notification).order_by(Notification.created_at.desc()).limit(250)
     if customer and not staff:
         stmt = stmt.where(Notification.customer_id == customer.customer_id)
-    elif not staff:
+    elif staff:
+        # Delivery codes are recipient-only. Never expose them in staff notification feeds.
+        stmt = stmt.where(Notification.type_code != "OTP")
+    else:
         raise HTTPException(403, "A customer or staff profile is required")
     rows = db.scalars(stmt).all()
-    return {"notifications": [notification_view(row) for row in rows], "unread_count": sum(row.read_at is None for row in rows)}
+    items = []
+    for row in rows:
+        item = notification_view(row)
+        if customer and not staff and row.type_code == "OTP":
+            # The notification stores its original message, but only surface its code
+            # while the matching delivery OTP is still valid and unused.
+            assignment = db.scalar(select(ShipmentAssignment).where(
+                ShipmentAssignment.shipment_id == row.shipment_id,
+                ShipmentAssignment.task_type_code == "DELIVERY",
+            ))
+            otp = db.scalar(select(DeliveryOTP).where(DeliveryOTP.assignment_id == assignment.assignment_id)) if assignment else None
+            shipment = db.get(Shipment, row.shipment_id)
+            item["tracking_id"] = shipment.tracking_id if shipment else None
+            match = re.search(r"Delivery code for shipment [^:]+:\s*(\d{6})", row.message)
+            now = datetime.now(timezone.utc)
+            same_issue = bool(otp and abs((otp.created_at - row.created_at).total_seconds()) <= 60)
+            active = bool(otp and match and same_issue and assignment and assignment.status_code == "IN_PROGRESS"
+                          and shipment and shipment.current_status == "OUT_FOR_DELIVERY"
+                          and otp.consumed_at is None and otp.expires_at > now and otp.attempt_count < 5)
+            item["message"] = "A delivery verification code was requested for this shipment."
+            item["delivery_code"] = match.group(1) if active else None
+            item["expires_at"] = otp.expires_at.isoformat() if active else None
+            item["code_active"] = active
+        items.append(item)
+    return {"notifications": items, "unread_count": sum(row.read_at is None for row in rows)}
 
 
 @app.post("/api/notifications/{notification_id}/read")
@@ -711,11 +739,17 @@ def mark_notification_read(notification_id: str, request: Request, db: Session =
     if not notification:
         raise HTTPException(404, "Notification not found")
     customer = db.scalar(select(Customer).where(Customer.user_id == user.user_id))
-    if not staff_for(db, user) and (not customer or notification.customer_id != customer.customer_id):
+    staff = staff_for(db, user)
+    if notification.type_code == "OTP" and (not customer or notification.customer_id != customer.customer_id):
+        raise HTTPException(404, "Notification not found")
+    if not staff and (not customer or notification.customer_id != customer.customer_id):
         raise HTTPException(404, "Notification not found")
     notification.read_at = notification.read_at or datetime.now(timezone.utc)
     db.commit()
-    return notification_view(notification)
+    result = notification_view(notification)
+    if notification.type_code == "OTP":
+        result["message"] = "A delivery verification code was requested for this shipment."
+    return result
 
 
 @app.get("/api/complaints")
@@ -923,11 +957,17 @@ def shipment_tracking_detail(shipment_id: str, request: Request, db: Session = D
         location = location_by_id.get(event.location_id)
         if location:
             history_location_ids.add(location.location_id)
+        address = None
+        if event.new_status == "PICKED_UP":
+            address = "sender"
+        elif event.new_status == "DELIVERED":
+            address = "receiver"
         movement_events.append({
             "kind": "STATUS",
             "status": event.new_status,
             "event_at": event.event_at.isoformat(),
             "location_text": location.location_text if location else None,
+            "address_role": address,
             "scan_type": location.scan_type if location else None,
             "remarks": event.remarks,
         })
@@ -971,6 +1011,12 @@ def shipment_tracking_detail(shipment_id: str, request: Request, db: Session = D
     data["latest_location"] = latest_gps_location(db, shipment_id)
     data["movement_events"] = movement_events
     data["warehouse_scans"] = warehouse_scans
+    proof = db.scalar(select(ProofOfDelivery).where(ProofOfDelivery.shipment_id == shipment_id))
+    data["delivery_proof"] = ({
+        "otp_verified": proof.otp_verified,
+        "captured_at": proof.captured_at.isoformat(),
+        "remarks": proof.remarks,
+    } if proof else None)
     return data
 
 
@@ -1315,6 +1361,22 @@ def warehouse_scans(request: Request, db: Session = Depends(get_db)):
     return [{"scan_id": scan.scan_id, "shipment_id": scan.shipment_id, "tracking_id": shipment.tracking_id, "hub_id": scan.hub_id, "scan_type": scan.scan_type, "scanned_at": scan.scanned_at.isoformat()} for scan, shipment in rows]
 
 
+@app.get("/api/warehouse/in-transit")
+def warehouse_in_transit(request: Request, db: Session = Depends(get_db)):
+    required_staff(request, db, {"ADMINISTRATOR", "OPERATIONS_MANAGER", "WAREHOUSE_OFFICER"})
+    rows = db.scalars(
+        select(Shipment)
+        .where(Shipment.current_status == "IN_TRANSIT")
+        .order_by(Shipment.booking_date.desc())
+        .limit(200)
+    ).all()
+    return [{
+        "shipment_id": shipment.shipment_id,
+        "tracking_id": shipment.tracking_id,
+        "receiver": address_view(db, shipment.receiver_address_id),
+    } for shipment in rows]
+
+
 @app.post("/api/warehouse/scans")
 def create_warehouse_scan(payload: WarehouseScanIn, request: Request, db: Session = Depends(get_db)):
     user, staff = required_staff(request, db, {"ADMINISTRATOR", "OPERATIONS_MANAGER", "WAREHOUSE_OFFICER"})
@@ -1324,29 +1386,40 @@ def create_warehouse_scan(payload: WarehouseScanIn, request: Request, db: Sessio
     hub = db.get(Hub, payload.hub_id)
     if hub is None or not hub.active:
         raise HTTPException(status_code=404, detail="Active hub not found")
-    if shipment.current_status != "PICKED_UP":
-        raise HTTPException(status_code=409, detail="A warehouse receipt requires a picked-up shipment")
-    assignment = db.scalar(select(ShipmentAssignment).where(ShipmentAssignment.shipment_id == shipment.shipment_id, ShipmentAssignment.task_type_code == "WAREHOUSE"))
-    if not assignment or assignment.status_code == "COMPLETED":
-        raise HTTPException(status_code=409, detail="An active warehouse assignment is required")
-    if staff.staff_id != assignment.staff_id and staff.role_code not in {"ADMINISTRATOR", "OPERATIONS_MANAGER"}:
-        raise HTTPException(status_code=403, detail="This shipment is assigned to another warehouse officer")
+    if shipment.current_status not in {"PICKED_UP", "IN_TRANSIT"}:
+        raise HTTPException(status_code=409, detail="Warehouse arrivals can only be recorded before final delivery")
+    first_receipt = shipment.current_status == "PICKED_UP"
+    assignment = None
+    if first_receipt:
+        assignment = db.scalar(select(ShipmentAssignment).where(ShipmentAssignment.shipment_id == shipment.shipment_id, ShipmentAssignment.task_type_code == "WAREHOUSE"))
+        if not assignment or assignment.status_code == "COMPLETED":
+            raise HTTPException(status_code=409, detail="An active warehouse assignment is required")
+        if staff.staff_id != assignment.staff_id and staff.role_code not in {"ADMINISTRATOR", "OPERATIONS_MANAGER"}:
+            raise HTTPException(status_code=403, detail="This shipment is assigned to another warehouse officer")
+    else:
+        delivery_assignment = db.scalar(select(ShipmentAssignment).where(ShipmentAssignment.shipment_id == shipment.shipment_id, ShipmentAssignment.task_type_code == "DELIVERY"))
+        if delivery_assignment and delivery_assignment.status_code == "IN_PROGRESS":
+            raise HTTPException(status_code=409, detail="An inter-hub arrival cannot be recorded after final-mile delivery has started")
     if payload.scan_type.strip().upper() != "RECEIVED":
         raise HTTPException(status_code=400, detail="Record a RECEIVED scan to hand off the parcel")
     from .services import new_id
     row = WarehouseScan(scan_id=new_id(db, WarehouseScan, "scan_id", "OBUSCN", width=6), shipment_id=shipment.shipment_id, scan_type=payload.scan_type.strip().upper(), scanned_at=datetime.now(timezone.utc), hub_id=hub.hub_id, scanned_by=staff.staff_id)
     try:
         db.add(row)
-        add_location_and_history(db, shipment, user, "IN_TRANSIT", hub.name, "Received and dispatched from warehouse")
-        assignment.status_code = "COMPLETED"
-        assignment.completed_at = row.scanned_at
-        assignment.failure_reason = "Completed successfully"
-        auto_assign_task(db, shipment, "DELIVERY")
+        if first_receipt:
+            add_location_and_history(db, shipment, user, "IN_TRANSIT", hub.name, "Received and dispatched from warehouse")
+            assignment.status_code = "COMPLETED"
+            assignment.completed_at = row.scanned_at
+            assignment.failure_reason = "Completed successfully"
+            auto_assign_task(db, shipment, "DELIVERY")
+        else:
+            hub_location = f"{hub.name}, {hub.city}, {hub.state} {hub.postal_code}"
+            db.add(LocationUpdate(location_id=new_id(db, LocationUpdate, "location_id", "OBULOC"), shipment_id=shipment.shipment_id, recorded_at=row.scanned_at, location_text=hub_location, scan_type="WAREHOUSE", recorded_by=user.user_id))
         db.commit()
     except (ValueError, IntegrityError) as exc:
         db.rollback()
         raise HTTPException(status_code=409, detail=str(exc))
-    return {"scan_id": row.scan_id, "shipment_id": row.shipment_id, "tracking_id": shipment.tracking_id, "hub_id": row.hub_id, "scan_type": row.scan_type, "scanned_at": row.scanned_at.isoformat(), "shipment_status": shipment.current_status, "next_task": "DELIVERY"}
+    return {"scan_id": row.scan_id, "shipment_id": row.shipment_id, "tracking_id": shipment.tracking_id, "hub_id": row.hub_id, "scan_type": row.scan_type, "scanned_at": row.scanned_at.isoformat(), "shipment_status": shipment.current_status, "next_task": "DELIVERY" if first_receipt else "IN_TRANSIT"}
 
 
 @app.get("/api/finance/summary")
