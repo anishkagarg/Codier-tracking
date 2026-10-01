@@ -407,7 +407,7 @@ async function handleTaskAction(task){
     else if(action==="pickup")await api(`/api/assignments/${id}/pickup-complete`,{method:"POST"});
     else if(action==="otp"){
       await api(`/api/assignments/${id}/otp`,{method:"POST"});
-      toast("Delivery code sent to the customer's Notifications");
+      toast("OK, OTP requested.");
       return;
     }
     else if(action==="deliver"){
@@ -418,7 +418,7 @@ async function handleTaskAction(task){
       await api(`/api/assignments/${id}/deliver`,{method:"POST",body:JSON.stringify({code,remarks:"OTP verified",cash_collected:Boolean(cashBox?.checked)})});
     }
     else return;
-    toast("Task updated");
+    toast(action==="deliver"?"Delivery verified — delivery completed.":"Task updated");
     navigate("tasks");
   }catch(err){toast(err.message,true)}
 }
