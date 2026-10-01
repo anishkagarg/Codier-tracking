@@ -22,7 +22,7 @@
 - **Assignments** creates pickup, delivery or warehouse tasks.
 - **Reports** displays live status totals, invoice totals and delayed shipments.
 - **Warehouse** records hub-linked scans.
-- **Finance** displays read-only financial totals.
+- **Finance** gives Accounts Officers an operational workbench: review unpaid invoices, open COD settlements and refund statuses; record courier operating costs and other income with source references; and enter dated asset/liability balances. Choose a period for the operating result and a separate date for the balance snapshot. The values use live OptiGo records and staff-entered data; they are not audited or statutory accounts. Reconcile balances with source documents and have a qualified accountant review them before relying on them externally.
 - **Support & complaints** allows authorized support staff to move complaints through OPEN, IN_PROGRESS, RESOLVED or CLOSED.
 
 ## Administrator: create a warehouse officer login

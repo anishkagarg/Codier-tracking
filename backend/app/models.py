@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, CHAR, Column, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, CHAR, CheckConstraint, Column, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 
 from .db import Base
@@ -350,6 +350,41 @@ class CodCollection(Base):
     settlement_reference = Column(String(100), nullable=False, unique=True)
     collected_by_id = Column(String(12), ForeignKey("staff.staff_id"), nullable=False)
     settled_by_id = Column(String(12), ForeignKey("staff.staff_id"), nullable=False)
+
+
+class FinanceTransaction(Base):
+    """Append-only operational income/expense register maintained by finance staff."""
+    __tablename__ = "finance_transactions"
+    __table_args__ = (
+        CheckConstraint("amount > 0", name="ck_finance_transactions_positive_amount"),
+        UniqueConstraint("entry_type", "reference_no", name="uq_finance_transaction_reference"),
+    )
+    entry_id = Column(String(40), primary_key=True, nullable=False)
+    entry_type = Column(String(20), nullable=False)
+    category = Column(String(40), nullable=False)
+    description = Column(String(500), nullable=False)
+    amount = Column(Numeric(14, 2), nullable=False)
+    currency = Column(CHAR(3), nullable=False, default="INR")
+    entry_date = Column(Date, nullable=False)
+    reference_no = Column(String(100), nullable=True)
+    recorded_at = Column(DateTime(timezone=True), nullable=False)
+    recorded_by_id = Column(String(12), ForeignKey("staff.staff_id"), nullable=False)
+
+
+class FinancePosition(Base):
+    """Dated snapshots for balance-sheet asset and liability accounts."""
+    __tablename__ = "finance_positions"
+    __table_args__ = (CheckConstraint("amount >= 0", name="ck_finance_positions_nonnegative_amount"),)
+    position_id = Column(String(40), primary_key=True, nullable=False)
+    position_type = Column(String(20), nullable=False)
+    category = Column(String(40), nullable=False)
+    account_name = Column(String(120), nullable=False)
+    amount = Column(Numeric(14, 2), nullable=False)
+    currency = Column(CHAR(3), nullable=False, default="INR")
+    balance_date = Column(Date, nullable=False)
+    notes = Column(String(500), nullable=False, default="")
+    recorded_at = Column(DateTime(timezone=True), nullable=False)
+    recorded_by_id = Column(String(12), ForeignKey("staff.staff_id"), nullable=False)
 
 
 class WarehouseScan(Base):

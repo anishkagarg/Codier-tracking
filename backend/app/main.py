@@ -23,7 +23,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from typing import Literal
 
 from .db import SessionLocal, engine, get_db
-from .models import Address, AdminRecoveryState, AssignmentStatus, BookingIdempotency, Complaint, Customer, DeliveryType, Department, Hub, Invoice, LocationUpdate, Notification, PasswordResetOTP, Payment, PricingRule, Refund, Route, Shipment, ShipmentAssignment, ShipmentStatusHistory, Staff, StaffRole, User, Vehicle, WarehouseScan
+from .models import Address, AdminRecoveryState, AssignmentStatus, BookingIdempotency, CodCollection, Complaint, Customer, DeliveryType, Department, FinancePosition, FinanceTransaction, Hub, Invoice, LocationUpdate, Notification, PasswordResetOTP, Payment, PricingRule, Refund, Route, Shipment, ShipmentAssignment, ShipmentStatusHistory, Staff, StaffRole, User, Vehicle, WarehouseScan
 from .security import hash_otp, hash_password, verify_otp, verify_password
 from .services import add_location_and_history, apply_shipping_offers, assign_task, auto_assign_task, create_booking, delivery_assessment, haversine_km, latest_gps_location, new_id, optimize_route, price_for_weight, public_tracking, request_delivery_otp, send_password_reset_email, transition_assignment, verify_delivery
 
@@ -68,6 +68,8 @@ async def lifespan(_app: FastAPI):
     BookingIdempotency.__table__.create(bind=engine, checkfirst=True)
     PasswordResetOTP.__table__.create(bind=engine, checkfirst=True)
     AdminRecoveryState.__table__.create(bind=engine, checkfirst=True)
+    FinanceTransaction.__table__.create(bind=engine, checkfirst=True)
+    FinancePosition.__table__.create(bind=engine, checkfirst=True)
     # Initialize a persistent one-use latch. Concurrent instances may race on
     # first startup; a unique primary key makes the losing insert harmless.
     with SessionLocal() as db:
@@ -285,6 +287,34 @@ class ComplaintIn(BaseModel):
 
 class ComplaintUpdateIn(BaseModel):
     status_code: str = Field(pattern="^(OPEN|IN_PROGRESS|RESOLVED|CLOSED)$")
+
+
+class FinanceTransactionIn(BaseModel):
+    entry_type: Literal["EXPENSE", "OTHER_INCOME"]
+    category: str = Field(min_length=2, max_length=40, pattern="^[A-Z_]+$")
+    description: str = Field(min_length=3, max_length=500)
+    amount: Decimal = Field(gt=0, max_digits=14, decimal_places=2)
+    entry_date: date
+    reference_no: str | None = Field(default=None, max_length=100)
+
+
+class FinancePositionIn(BaseModel):
+    position_type: Literal["ASSET", "LIABILITY"]
+    category: str = Field(min_length=2, max_length=40, pattern="^[A-Z_]+$")
+    account_name: str = Field(min_length=2, max_length=120)
+    amount: Decimal = Field(ge=0, max_digits=14, decimal_places=2)
+    balance_date: date
+    notes: str = Field(default="", max_length=500)
+
+
+FINANCE_TRANSACTION_CATEGORIES = {
+    "EXPENSE": {"FUEL_TRANSPORT", "VEHICLE_MAINTENANCE", "SALARIES_WAGES", "HUB_WAREHOUSE", "PACKAGING_SUPPLIES", "TECHNOLOGY", "INSURANCE", "TAXES_FEES", "OTHER_EXPENSE"},
+    "OTHER_INCOME": {"OTHER_SERVICE_INCOME", "MISCELLANEOUS_INCOME"},
+}
+FINANCE_POSITION_CATEGORIES = {
+    "ASSET": {"CASH_BANK", "CUSTOMER_RECEIVABLES", "VEHICLES_EQUIPMENT", "PREPAID", "OTHER_ASSET"},
+    "LIABILITY": {"SUPPLIER_PAYABLES", "LOANS", "TAXES_PAYABLE", "CUSTOMER_ADVANCES", "OTHER_LIABILITY"},
+}
 
 
 def user_from_request(request: Request, db: Session) -> User | None:
@@ -1240,6 +1270,115 @@ def finance_invoices(request: Request, db: Session = Depends(get_db)):
     required_staff(request, db, {"ADMINISTRATOR", "OPERATIONS_MANAGER", "ACCOUNTS_OFFICER"})
     rows = db.execute(select(Invoice, Shipment).join(Shipment, Invoice.shipment_id == Shipment.shipment_id).order_by(Invoice.issued_at.desc()).limit(100)).all()
     return {"invoices": [{"invoice_no": invoice.invoice_no, "tracking_id": shipment.tracking_id, "issued_at": invoice.issued_at.isoformat(), "total": str(invoice.total), "currency": invoice.currency.strip(), "payment_mode": invoice.preferred_payment_mode or "UNSPECIFIED", "payment_status": invoice.payment_status_code, "cash_due": str(shipment.cod_amount_due)} for invoice, shipment in rows]}
+
+
+@app.get("/api/finance/workbench")
+def finance_workbench(
+    request: Request,
+    period_start: date | None = Query(default=None),
+    period_end: date | None = Query(default=None),
+    as_of: date | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    """Operational finance workbench; deliberately not a statutory ledger."""
+    required_staff(request, db, {"ADMINISTRATOR", "OPERATIONS_MANAGER", "ACCOUNTS_OFFICER"})
+    today = date.today()
+    period_end = period_end or today
+    period_start = period_start or period_end.replace(day=1)
+    as_of = as_of or today
+    if period_start > period_end:
+        raise HTTPException(422, "Period start must be on or before period end")
+
+    range_start = datetime(period_start.year, period_start.month, period_start.day, tzinfo=timezone.utc)
+    day_after_end = period_end + timedelta(days=1)
+    range_end = datetime(day_after_end.year, day_after_end.month, day_after_end.day, tzinfo=timezone.utc)
+    invoices = db.scalars(select(Invoice).where(Invoice.issued_at >= range_start, Invoice.issued_at < range_end).order_by(Invoice.issued_at.desc())).all()
+    inr_invoices = [row for row in invoices if row.currency.strip().upper() == "INR"]
+    other_income_rows = db.scalars(select(FinanceTransaction).where(FinanceTransaction.entry_type == "OTHER_INCOME", FinanceTransaction.entry_date >= period_start, FinanceTransaction.entry_date <= period_end)).all()
+    expense_rows = db.scalars(select(FinanceTransaction).where(FinanceTransaction.entry_type == "EXPENSE", FinanceTransaction.entry_date >= period_start, FinanceTransaction.entry_date <= period_end)).all()
+    recognized_refund_statuses = {"COMPLETED", "PROCESSED", "REFUNDED", "SUCCESS", "SUCCEEDED"}
+    refund_rows = db.scalars(select(Refund).where(Refund.processed_at >= range_start, Refund.processed_at < range_end)).all()
+    completed_refunds = [row for row in refund_rows if row.status_code.strip().upper() in recognized_refund_statuses]
+    closed_refund_statuses = recognized_refund_statuses | {"FAILED", "CANCELLED", "REJECTED"}
+    refund_review_count = db.scalar(select(func.count(Refund.refund_id)).where(Refund.status_code.not_in(closed_refund_statuses))) or 0
+    refund_review_rows = db.execute(select(Refund, Payment, Invoice, Shipment).join(Payment, Payment.payment_id == Refund.payment_id).join(Invoice, Invoice.invoice_no == Payment.invoice_no).join(Shipment, Shipment.shipment_id == Invoice.shipment_id).where(Refund.status_code.not_in(closed_refund_statuses)).order_by(Refund.processed_at.desc()).limit(20)).all()
+    money_zero = Decimal("0.00")
+    billed = sum((row.total for row in inr_invoices), money_zero)
+    other_income = sum((row.amount for row in other_income_rows), money_zero)
+    expenses = sum((row.amount for row in expense_rows), money_zero)
+    refunds = sum((row.amount for row in completed_refunds), money_zero)
+    net_profit_loss = billed + other_income - refunds - expenses
+
+    unpaid = db.scalars(select(Invoice).where(Invoice.payment_status_code != "PAID").order_by(Invoice.issued_at.desc())).all()
+    paid_in_period = [row for row in inr_invoices if row.payment_status_code == "PAID"]
+    unsettled_cod_filter = CodCollection.settlement_status_code.not_in(["SETTLED", "COMPLETED"])
+    open_cod_count = db.scalar(select(func.count(CodCollection.collection_id)).where(unsettled_cod_filter)) or 0
+    open_cod_total = db.scalar(select(func.coalesce(func.sum(CodCollection.amount), 0)).where(unsettled_cod_filter)) or money_zero
+    open_cod = db.execute(select(CodCollection, Shipment).join(Shipment, Shipment.shipment_id == CodCollection.shipment_id).where(unsettled_cod_filter).order_by(CodCollection.collected_at.desc()).limit(20)).all()
+
+    positions = db.scalars(select(FinancePosition).where(FinancePosition.balance_date <= as_of).order_by(FinancePosition.balance_date.desc(), FinancePosition.recorded_at.desc())).all()
+    latest_by_account = {}
+    for row in positions:
+        key = (row.position_type, row.category, row.account_name.casefold())
+        latest_by_account.setdefault(key, row)
+    asset_positions = [row for row in latest_by_account.values() if row.position_type == "ASSET"]
+    liability_positions = [row for row in latest_by_account.values() if row.position_type == "LIABILITY"]
+    assets = sum((row.amount for row in asset_positions), money_zero)
+    liabilities = sum((row.amount for row in liability_positions), money_zero)
+    equity = assets - liabilities
+    recent_transactions = db.scalars(select(FinanceTransaction).order_by(FinanceTransaction.entry_date.desc(), FinanceTransaction.recorded_at.desc()).limit(20)).all()
+
+    return {
+        "period_start": period_start.isoformat(), "period_end": period_end.isoformat(), "as_of": as_of.isoformat(),
+        "pnl": {
+            "shipping_revenue_billed": str(billed), "other_income": str(other_income),
+            "completed_refunds": str(refunds), "operating_expenses": str(expenses),
+            "net_profit_loss": str(net_profit_loss), "invoice_count": len(inr_invoices),
+            "other_currency_invoice_count": len(invoices) - len(inr_invoices),
+        },
+        "collections": {
+            "paid_invoice_count": len(paid_in_period), "paid_invoice_total": str(sum((row.total for row in paid_in_period), money_zero)),
+            "unpaid_invoice_count": len(unpaid), "unpaid_invoice_total": str(sum((row.total for row in unpaid if row.currency.strip().upper() == "INR"), money_zero)),
+            "pending_refund_count": refund_review_count,
+            "open_cod_settlement_count": open_cod_count,
+            "open_cod_settlement_total": str(open_cod_total),
+        },
+        "balance_sheet": {
+            "assets": str(assets), "liabilities": str(liabilities), "equity": str(equity),
+            "asset_positions": [{"position_type": row.position_type, "category": row.category, "account_name": row.account_name, "amount": str(row.amount), "balance_date": row.balance_date.isoformat(), "notes": row.notes} for row in asset_positions],
+            "liability_positions": [{"position_type": row.position_type, "category": row.category, "account_name": row.account_name, "amount": str(row.amount), "balance_date": row.balance_date.isoformat(), "notes": row.notes} for row in liability_positions],
+        },
+        "unpaid_invoices": [{"invoice_no": row.invoice_no, "tracking_id": shipment.tracking_id, "total": str(row.total), "currency": row.currency.strip(), "payment_mode": row.preferred_payment_mode or "UNSPECIFIED", "issued_at": row.issued_at.isoformat(), "payment_status": row.payment_status_code} for row, shipment in db.execute(select(Invoice, Shipment).join(Shipment, Shipment.shipment_id == Invoice.shipment_id).where(Invoice.payment_status_code != "PAID").order_by(Invoice.issued_at.desc()).limit(20)).all()],
+        "open_cod_settlements": [{"tracking_id": shipment.tracking_id, "amount": str(row.amount), "status": row.settlement_status_code, "collected_at": row.collected_at.isoformat(), "reference": row.settlement_reference} for row, shipment in open_cod],
+        "refund_review_queue": [{"refund_id": refund.refund_id, "tracking_id": shipment.tracking_id, "amount": str(refund.amount), "status": refund.status_code, "reason": refund.reason, "reference": refund.reference_no, "processed_at": refund.processed_at.isoformat()} for refund, _payment, _invoice, shipment in refund_review_rows],
+        "recent_transactions": [{"entry_id": row.entry_id, "entry_type": row.entry_type, "category": row.category, "description": row.description, "amount": str(row.amount), "entry_date": row.entry_date.isoformat(), "reference_no": row.reference_no} for row in recent_transactions],
+        "categories": {"transactions": {key: sorted(value) for key, value in FINANCE_TRANSACTION_CATEGORIES.items()}, "positions": {key: sorted(value) for key, value in FINANCE_POSITION_CATEGORIES.items()}},
+    }
+
+
+@app.post("/api/finance/transactions", status_code=201)
+def create_finance_transaction(payload: FinanceTransactionIn, request: Request, db: Session = Depends(get_db)):
+    _user, staff = required_staff(request, db, {"ADMINISTRATOR", "ACCOUNTS_OFFICER"})
+    if payload.category not in FINANCE_TRANSACTION_CATEGORIES[payload.entry_type]:
+        raise HTTPException(422, "Choose a category that matches this income or expense type")
+    reference = payload.reference_no.strip() if payload.reference_no else None
+    if reference and db.scalar(select(FinanceTransaction).where(FinanceTransaction.entry_type == payload.entry_type, FinanceTransaction.reference_no == reference)):
+        raise HTTPException(409, "That reference has already been recorded for this entry type")
+    row = FinanceTransaction(entry_id=new_id(db, FinanceTransaction, "entry_id", "OBUFIN", width=10), entry_type=payload.entry_type, category=payload.category, description=payload.description.strip(), amount=payload.amount, currency="INR", entry_date=payload.entry_date, reference_no=reference, recorded_at=datetime.now(timezone.utc), recorded_by_id=staff.staff_id)
+    db.add(row)
+    db.commit()
+    return {"entry_id": row.entry_id, "entry_type": row.entry_type, "category": row.category, "amount": str(row.amount), "currency": row.currency.strip(), "entry_date": row.entry_date.isoformat(), "reference_no": row.reference_no}
+
+
+@app.post("/api/finance/positions", status_code=201)
+def record_finance_position(payload: FinancePositionIn, request: Request, db: Session = Depends(get_db)):
+    _user, staff = required_staff(request, db, {"ADMINISTRATOR", "ACCOUNTS_OFFICER"})
+    if payload.category not in FINANCE_POSITION_CATEGORIES[payload.position_type]:
+        raise HTTPException(422, "Choose a balance-sheet category that matches asset or liability")
+    row = FinancePosition(position_id=new_id(db, FinancePosition, "position_id", "OBUFP", width=10), position_type=payload.position_type, category=payload.category, account_name=payload.account_name.strip(), amount=payload.amount, currency="INR", balance_date=payload.balance_date, notes=payload.notes.strip(), recorded_at=datetime.now(timezone.utc), recorded_by_id=staff.staff_id)
+    db.add(row)
+    db.commit()
+    return {"position_id": row.position_id, "position_type": row.position_type, "account_name": row.account_name, "amount": str(row.amount), "currency": row.currency.strip(), "balance_date": row.balance_date.isoformat()}
 
 
 @app.exception_handler(IntegrityError)

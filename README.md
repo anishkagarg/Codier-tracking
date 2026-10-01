@@ -4,7 +4,7 @@ This folder is the canonical combined project for the Mini Project location.
 
 - `backend` is the OptiGo FastAPI service. The configured PostgreSQL database is retained as the source of truth (`seneca_phase3` in the current local setup).
 - `frontend` is the delivered OptiGo static frontend. Local development uses `http://127.0.0.1:8000`; GitHub Pages receives its API URL from the `OPTIGO_API_BASE` repository variable.
-- Phase 4 includes authentication/RBAC, booking, tracking, status history, assignments, OTP delivery proof, reports, warehouse scans, finance summaries, in-app notifications and complaints.
+- Phase 4 includes authentication/RBAC, booking, tracking, status history, assignments, OTP delivery proof, reports, warehouse scans, an operational accounts workbench, in-app notifications and complaints.
 - Phase 5 includes role-aware dashboards, booking, shipment history, public tracking, task operations, notifications and support/complaint screens.
 - Phase 6 includes transparent schedule-based delay assessment; Phase 7 includes repeatable PostgreSQL-backed validation in `backend/scripts/phase7_checks.py`.
 - The academic phase labels below describe the project history; the product and user interface are branded OptiGo. Enhancements include browser GPS sharing, no-cost route optimization, rule-based delivery prediction, optional SMTP email transport and Razorpay Test Mode. Simulated online payment is disabled unless explicitly enabled for a local/demo environment.

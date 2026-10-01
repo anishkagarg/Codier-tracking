@@ -6,7 +6,7 @@ This folder contains the OptiGo courier tracking backend. It is aligned to the l
 
 The ORM models were checked against the live PostgreSQL catalog on 24 September 2026. IDs are text OBU identifiers such as `OBUUSR000005`, `OBUSTF0004`, `OBUSHP000001`, `OBUTRK000001`, `OBUHUB0001`, and `OBUVEH000001`. No UUID conversion, SQLite replacement, mock production data, or database schema modification is included.
 
-The live database contains 38 public tables, including users/customers/staff, addresses, shipments/items, shipment history, assignments, hubs/routes/vehicles, warehouse scans, OTP/proof, invoices/payments/refunds, COD, notifications, complaints, and operational observations. `app/models.py` maps the live column names and PostgreSQL types exactly for these domains.
+The existing application schema contains 38 operational tables, including users/customers/staff, addresses, shipments/items, shipment history, assignments, hubs/routes/vehicles, warehouse scans, OTP/proof, invoices/payments/refunds, COD, notifications, complaints, and operational observations. OptiGo adds two isolated tables for its append-only finance transaction register and dated balance snapshots; the startup migration creates them without changing existing records. `app/models.py` maps the existing live column names and PostgreSQL types exactly for the original domains.
 
 ## Run in VS Code
 
@@ -29,7 +29,7 @@ Open Swagger at `http://127.0.0.1:8000/docs`.
 - Administrator / Operations Manager: operational search, assignment, task oversight, reports and finance read access.
 - Delivery Agent / Pickup Agent: assigned task view, pickup/delivery status and delivery proof flow.
 - Warehouse Officer: warehouse scan and operational lookup access.
-- Accounts Officer: invoice, payment, refund and COD read access.
+- Accounts Officer: invoice/payment review, collection and refund/COD follow-up, append-only expense/other-income entry, and dated balance-sheet asset/liability snapshots.
 - Booking, Tracking and Support Officers: role-scoped operational capabilities matching the live lookup rows.
 
 Authentication uses signed server sessions. Passwords are stored as one-way PBKDF2 hashes for new registrations; the verifier also supports existing bcrypt hashes if the `bcrypt` dependency is installed. Password hashes and OTP hashes are never returned by the API.
@@ -45,7 +45,8 @@ Authentication uses signed server sessions. Passwords are stored as one-way PBKD
 - `/api/reports/summary` — status, invoice and delivery-time summary.
 - `/api/operations/lookups` — staff, hubs, routes and vehicles.
 - `/api/warehouse/scans` — warehouse scan history and live scan creation.
-- `/api/finance/summary` — finance read summary.
+- `/api/finance/workbench` — date-filtered operational P&L, unpaid invoices, COD/refund follow-up and balance-sheet snapshots.
+- `/api/finance/transactions` and `/api/finance/positions` — finance/admin-only append operations for documented costs/income and dated asset/liability balances.
 
 Full request and response details are in `API_DOCUMENTATION.md`.
 

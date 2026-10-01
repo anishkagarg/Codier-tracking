@@ -13,8 +13,8 @@ from sqlalchemy.orm import Session
 from starlette.requests import Request
 
 from app.db import engine
-from app.main import AddressIn, BookingIn, DeliveryIn, StaffAccountIn, WarehouseScanIn, admin_staff, book_shipment, create_otp, create_staff_account, create_warehouse_scan, deliver, finance_summary, operations_lookups, pickup_complete, start_delivery, warehouse_scans
-from app.models import Customer, Hub, Invoice, Notification, Payment, PricingRule, Shipment, ShipmentAssignment, Staff, User
+from app.main import AddressIn, BookingIn, DeliveryIn, FinancePositionIn, FinanceTransactionIn, StaffAccountIn, WarehouseScanIn, admin_staff, book_shipment, create_finance_transaction, create_otp, create_staff_account, create_warehouse_scan, deliver, finance_summary, finance_workbench, operations_lookups, pickup_complete, record_finance_position, start_delivery, warehouse_scans
+from app.models import Customer, FinancePosition, FinanceTransaction, Hub, Invoice, Notification, Payment, PricingRule, Shipment, ShipmentAssignment, Staff, User
 
 
 pytestmark = pytest.mark.skipif(os.getenv("OPTIGO_INTEGRATION_TEST") != "1", reason="requires the local PostgreSQL fixture")
@@ -157,6 +157,41 @@ def test_department_read_access_matches_staff_role_matrix():
                 with pytest.raises(HTTPException) as forbidden:
                     endpoint(request_for(staff_by_role[denied_role].user_id), db)
                 assert forbidden.value.status_code == 403
+        finally:
+            db.close()
+            outer.rollback()
+
+
+def test_accounts_officer_can_record_costs_and_build_operational_statements():
+    with engine.connect() as connection:
+        outer = connection.begin()
+        db = Session(bind=connection, join_transaction_mode="create_savepoint")
+        try:
+            accounts = db.scalar(select(Staff).where(Staff.role_code == "ACCOUNTS_OFFICER", Staff.active.is_(True)))
+            assert accounts is not None
+            today = datetime.now(timezone.utc).date()
+            actor = request_for(accounts.user_id)
+            create_finance_transaction(FinanceTransactionIn(entry_type="EXPENSE", category="FUEL_TRANSPORT", description="Van fuel receipt", amount="1250.00", entry_date=today, reference_no=f"fuel-{uuid4()}"), actor, db)
+            create_finance_transaction(FinanceTransactionIn(entry_type="OTHER_INCOME", category="OTHER_SERVICE_INCOME", description="Packaging service charge", amount="250.00", entry_date=today), actor, db)
+            record_finance_position(FinancePositionIn(position_type="ASSET", category="CASH_BANK", account_name="Operating bank", amount="10000.00", balance_date=today), actor, db)
+            record_finance_position(FinancePositionIn(position_type="LIABILITY", category="SUPPLIER_PAYABLES", account_name="Packaging supplier", amount="3000.00", balance_date=today), actor, db)
+
+            report = finance_workbench(actor, period_start=today, period_end=today, as_of=today, db=db)
+            assert report["pnl"]["shipping_revenue_billed"] == "0.00"
+            assert report["pnl"]["other_income"] == "250.00"
+            assert report["pnl"]["operating_expenses"] == "1250.00"
+            assert report["pnl"]["net_profit_loss"] == "-1000.00"
+            assert report["balance_sheet"]["assets"] == "10000.00"
+            assert report["balance_sheet"]["liabilities"] == "3000.00"
+            assert report["balance_sheet"]["equity"] == "7000.00"
+            assert db.query(FinanceTransaction).count() == 2
+            assert db.query(FinancePosition).count() == 2
+
+            from fastapi import HTTPException
+            pickup = db.scalar(select(Staff).where(Staff.role_code == "PICKUP_AGENT", Staff.active.is_(True)))
+            with pytest.raises(HTTPException) as forbidden:
+                create_finance_transaction(FinanceTransactionIn(entry_type="EXPENSE", category="FUEL_TRANSPORT", description="Unauthorized expense", amount="1.00", entry_date=today), request_for(pickup.user_id), db)
+            assert forbidden.value.status_code == 403
         finally:
             db.close()
             outer.rollback()

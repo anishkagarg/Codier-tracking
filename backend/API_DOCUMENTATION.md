@@ -28,6 +28,9 @@ All JSON endpoints use a signed session cookie. Login first, then send the cooki
 | POST | `/api/pricing/quote` | Authenticated | Quote the current shipping charge before booking |
 | GET | `/api/payments/options` | Authenticated | Whether Razorpay test checkout is configured |
 | GET | `/api/finance/invoices` | Accounts/manager/admin | Recent invoices with payment and cash-due status |
+| GET | `/api/finance/workbench` | Accounts/manager/admin | Period P&L, collection follow-up, refund/COD review queues, and latest balance snapshots |
+| POST | `/api/finance/transactions` | Accounts/admin | Append a documented operating expense or other-income entry |
+| POST | `/api/finance/positions` | Accounts/admin | Append a dated asset or liability balance snapshot |
 | GET | `/api/shipments` | Authenticated | Customer-owned or staff operational search |
 | POST | `/api/shipments` | Customer | Create shipment, addresses, initial history and invoice; requires `Idempotency-Key` header |
 | GET | `/api/shipments/{shipment_id}` | Owner/staff | Private shipment detail |
@@ -53,6 +56,16 @@ All JSON endpoints use a signed session cookie. Login first, then send the cooki
 | POST | `/api/routes/optimize` | Operations staff | No-cost Haversine nearest-neighbour route ordering |
 | POST | `/api/payments/razorpay/order` | Owner/staff | Create Razorpay Test Mode order or local fallback |
 | POST | `/api/payments/razorpay/verify` | Owner/staff | Verify Razorpay signature and mark invoice paid |
+
+## Accounts workbench
+
+`GET /api/finance/workbench` accepts optional ISO dates `period_start`, `period_end`, and `as_of`. It separates shipping revenue billed (invoice totals) from invoices still unpaid, shows recorded non-shipping income and operating expenses, subtracts refunds in completed statuses, and reports an operational net result. Open invoices, unsettled COD collection records, and refunds still awaiting a final status appear as follow-up queues. The API does not initiate or confirm external bank or payment-provider transfers.
+
+`POST /api/finance/transactions` accepts `entry_type` (`EXPENSE` or `OTHER_INCOME`), a supported category, positive INR amount, `entry_date`, description, and optional source reference. A non-empty reference must be unique for its entry type. Records are append-only and retain the staff ID and timestamp of the person who entered them.
+
+`POST /api/finance/positions` accepts `position_type` (`ASSET` or `LIABILITY`), category, account name, non-negative INR amount, `balance_date`, and optional supporting note. These are account-balance snapshots; the latest snapshot for each account on or before `as_of` is used. The displayed balancing equity is assets minus liabilities, so the arithmetic identity Assets = Liabilities + Equity will hold by construction; it is not an independently verified capital account or trial balance.
+
+These screens are operational controls, not a double-entry general ledger, tax return, or audited/statutory statement. The period result is only as complete as OptiGo invoices and the income, refund, and expense entries supplied. Balance-sheet accounts must be reconciled to bank/cash statements and source records, and the result should be checked by a qualified accountant before external use.
 
 ## Booking request
 
