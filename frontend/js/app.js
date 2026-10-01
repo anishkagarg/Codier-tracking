@@ -245,7 +245,7 @@ async function warehouse(){
 async function staffAdmin(){
   setTitle("Staff accounts");
   const data=await api("/api/admin/staff");
-  $("#view").innerHTML=`<div class="section-heading"><div><h2>Staff access</h2><p>Create role-specific logins so each courier department can use its own workspace.</p></div></div><div class="grid-2 staff-admin-grid"><section class="panel"><h3>Create staff account</h3><form id="staff-form" class="stack-form"><label>Full name<input name="name" required minlength="2" maxlength="120"></label><label>Work email<input name="email" type="email" required maxlength="254"></label><div class="form-grid"><div class="field"><label>Phone<input name="phone" required minlength="7" maxlength="30"></label></div><div class="field"><label>Employee ID<input name="employee_id" required minlength="2" maxlength="30"></label></div><div class="field"><label>Department<select name="department_code" required>${data.departments.map(d=>`<option value="${esc(d.code)}">${esc(d.name)}</option>`).join("")}</select></label></div><div class="field"><label>Role<select name="role_code" required>${data.roles.map(r=>`<option value="${esc(r.code)}" ${r.code==="WAREHOUSE_OFFICER"?"selected":""}>${esc(r.name)}</option>`).join("")}</select></label></div></div><label>Temporary password<input name="password" type="password" required minlength="8" maxlength="200" autocomplete="new-password"></label><button class="button primary" type="submit">Create staff login <span>→</span></button><div id="staff-result"></div></form></section><section class="panel"><h3>Active staff</h3>${data.staff.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>Employee</th><th>Role</th><th>Department</th><th>Status</th></tr></thead><tbody>${data.staff.map(s=>`<tr><td><strong>${esc(s.name)}</strong><br><small>${esc(s.employee_id)} · ${esc(s.email)}</small></td><td>${esc(s.role_code.replaceAll("_"," "))}</td><td>${esc(s.department_code.replaceAll("_"," "))}</td><td><span class="status-badge ${s.active?"status-delivered":"status-cancelled"}">${s.active?"ACTIVE":"INACTIVE"}</span></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty-state">No staff accounts found</div>`}</section></div>`;
+  $("#view").innerHTML=`<div class="section-heading"><div><h2>Staff access</h2><p>Create role-specific logins and set temporary OptiGo passwords for department accounts.</p></div></div><div class="grid-2 staff-admin-grid"><section class="panel"><h3>Create staff account</h3><form id="staff-form" class="stack-form"><label>Full name<input name="name" required minlength="2" maxlength="120"></label><label>Work email<input name="email" type="email" required maxlength="254"></label><div class="form-grid"><div class="field"><label>Phone<input name="phone" required minlength="7" maxlength="30"></label></div><div class="field"><label>Employee ID<input name="employee_id" required minlength="2" maxlength="30"></label></div><div class="field"><label>Department<select name="department_code" required>${data.departments.map(d=>`<option value="${esc(d.code)}">${esc(d.name)}</option>`).join("")}</select></label></div><div class="field"><label>Role<select name="role_code" required>${data.roles.map(r=>`<option value="${esc(r.code)}" ${r.code==="WAREHOUSE_OFFICER"?"selected":""}>${esc(r.name)}</option>`).join("")}</select></label></div></div><label>Temporary password<input name="password" type="password" required minlength="8" maxlength="200" autocomplete="new-password"></label><button class="button primary" type="submit">Create staff login <span>→</span></button><div id="staff-result"></div></form></section><section class="panel"><h3>Department logins</h3><p class="staff-password-guidance">Reset an OptiGo sign-in password here; this does not change the person’s Gmail password. The administrator account can also reset its own password after signing in.</p>${data.staff.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>Employee</th><th>Role</th><th>Department</th><th>Status</th><th>Password</th></tr></thead><tbody>${data.staff.map(s=>`<tr><td><strong>${esc(s.name)}</strong><br><small>${esc(s.employee_id)} · ${esc(s.email)}</small></td><td>${esc(s.role_code.replaceAll("_"," "))}</td><td>${esc(s.department_code.replaceAll("_"," "))}</td><td><span class="status-badge ${s.active?"status-delivered":"status-cancelled"}">${s.active?"ACTIVE":"INACTIVE"}</span></td><td>${s.active?`<button type="button" class="button secondary small" data-staff-password-reset="${esc(s.staff_id)}" data-staff-name="${esc(s.name)}" data-staff-email="${esc(s.email)}" data-staff-role="${esc(s.role_code.replaceAll("_"," "))}">Set password</button>`:`<span class="muted">Unavailable</span>`}</td></tr>`).join("")}</tbody></table></div>`:`<div class="empty-state">No staff accounts found</div>`}</section></div><dialog class="staff-password-dialog" id="staff-password-dialog" aria-labelledby="staff-password-title"><form id="staff-password-form"><h2 id="staff-password-title">Set an OptiGo password</h2><p id="staff-password-account" class="muted"></p><p class="staff-password-warning">Saving immediately replaces this account’s current website password. It does not change a Gmail password. Share the new password with the account holder through a private channel.</p><label for="staff-new-password">New temporary password</label><input id="staff-new-password" name="password" type="password" minlength="12" maxlength="200" autocomplete="new-password" required><div id="staff-password-result" class="staff-password-result" aria-live="polite"></div><div class="staff-password-actions"><button type="button" class="button ghost small" id="staff-generate-password">Generate secure password</button><button type="button" class="button secondary small hidden" id="staff-copy-password">Copy password</button><span class="staff-password-action-spacer"></span><button type="button" class="button ghost small" id="staff-password-cancel">Cancel</button><button type="submit" class="button primary small" id="staff-password-submit">Save password</button></div></form></dialog>`;
   $("#staff-form").onsubmit=async(e)=>{
     e.preventDefault();
     const form=e.currentTarget,button=form.querySelector('button[type="submit"]');
@@ -257,6 +257,30 @@ async function staffAdmin(){
       await staffAdmin();
     }catch(err){$("#staff-result").innerHTML=`<div class="error-text">${esc(err.message)}</div>`;button.disabled=false}
   };
+  const resetDialog=$("#staff-password-dialog"),resetForm=$("#staff-password-form"),resetInput=$("#staff-new-password"),resetSubmit=$("#staff-password-submit"),resetStatus=$("#staff-password-result");
+  resetForm.onsubmit=async event=>{
+    event.preventDefault();
+    if(!resetForm.reportValidity())return;
+    resetSubmit.disabled=true;
+    resetStatus.textContent="Saving the new password…";
+    try{
+      const account=await api(`/api/admin/staff/${encodeURIComponent(resetForm.dataset.staffId)}/password`,{method:"POST",body:JSON.stringify({password:resetInput.value})});
+      resetStatus.textContent=`Password updated for ${account.name} (${account.email}). Copy it now; it will be cleared when this dialog closes.`;
+      resetInput.type="text";
+      resetInput.readOnly=true;
+      resetSubmit.classList.add("hidden");
+      $("#staff-generate-password").classList.add("hidden");
+      $("#staff-copy-password").classList.remove("hidden");
+      const resetButton=document.querySelector(`[data-staff-password-reset="${CSS.escape(account.staff_id)}"]`);
+      if(resetButton){resetButton.disabled=true;resetButton.textContent="Password set"}
+      toast("OptiGo password updated");
+    }catch(err){resetStatus.innerHTML=`<span class="error-text">${esc(err.message)}</span>`;resetSubmit.disabled=false}
+  };
+  $("#staff-generate-password").onclick=()=>{resetInput.value=`${crypto.randomUUID().replaceAll("-","")}aB9!`;resetInput.focus();resetStatus.textContent="Generated locally. Save it to apply this password."};
+  $("#staff-copy-password").onclick=async()=>{try{await navigator.clipboard.writeText(resetInput.value);toast("Temporary password copied")}catch{resetInput.focus();resetInput.select();toast("Copy is blocked by this browser; the password is selected")}};
+  $("#staff-password-cancel").onclick=()=>resetDialog.close();
+  resetDialog.addEventListener("click",event=>{if(event.target===resetDialog)resetDialog.close()});
+  resetDialog.addEventListener("close",()=>{resetForm.reset();delete resetForm.dataset.staffId;resetInput.type="password";resetInput.readOnly=false;resetSubmit.classList.remove("hidden");resetSubmit.disabled=false;$("#staff-generate-password").classList.remove("hidden");$("#staff-copy-password").classList.add("hidden");resetStatus.textContent=""});
 }
 async function finance(){
   setTitle("Finance");
@@ -302,6 +326,8 @@ async function handleTaskAction(task){
   }catch(err){toast(err.message,true)}
 }
 document.addEventListener("click",(e)=>{
+  const staffReset=e.target.closest("[data-staff-password-reset]");
+  if(staffReset){const form=$("#staff-password-form");form.dataset.staffId=staffReset.dataset.staffPasswordReset;$("#staff-password-account").textContent=`${staffReset.dataset.staffName} · ${staffReset.dataset.staffRole} · ${staffReset.dataset.staffEmail}`;$("#staff-password-dialog").showModal();$("#staff-new-password").focus();return}
   if(e.target.closest("[data-customer-logout]")){e.preventDefault();$("#logout-button").click();return}
   if(e.target.closest("#customer-delete-account")){e.preventDefault();$("#delete-account-button").click();return}
   const useAddress=e.target.closest("[data-use-address]");

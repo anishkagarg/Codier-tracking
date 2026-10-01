@@ -15,7 +15,7 @@ from app.db import Base
 from app.security import hash_otp, hash_password, verify_otp, verify_password
 from app.services import STATUS_TRANSITIONS, apply_shipping_offers, create_booking, price_for_weight
 from app.models import Address, Customer, Department, Invoice, PasswordResetOTP, Staff, StaffRole, User
-from app.main import AddressIn, AuthIn, PasswordResetIn, PasswordResetRequestIn, PriceQuoteIn, confirm_password_reset, create_address, demo_online_enabled, list_addresses, location_cities, login, public_pricing_quote, razorpay_test_keys_ready, request_password_reset, validate_startup_configuration
+from app.main import AddressIn, AuthIn, PasswordResetIn, PasswordResetRequestIn, PriceQuoteIn, StaffPasswordResetIn, admin_reset_staff_password, confirm_password_reset, create_address, demo_online_enabled, list_addresses, location_cities, login, public_pricing_quote, razorpay_test_keys_ready, request_password_reset, validate_startup_configuration
 from starlette.requests import Request
 
 
@@ -151,6 +151,68 @@ def test_customer_address_book_uses_authenticated_customer_api():
         assert created.status_code == 201, created.text
         assert created.json()["line1"] == address_payload["line1"]
         assert client.get("/api/addresses").json() == [created.json()]
+    engine.dispose()
+
+
+def test_only_administrator_can_reset_existing_staff_passwords_including_own():
+    from app import main
+
+    from datetime import datetime, timezone
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    tables = [Department.__table__, StaffRole.__table__, User.__table__, Customer.__table__, Staff.__table__]
+    Base.metadata.create_all(engine, tables=tables)
+    old_password = "OriginalPassword123!"
+    admin_id, admin_email = "OBUUSR000001", "admin@example.test"
+    worker_id, worker_email = "OBUUSR000002", "pickup@example.test"
+    admin = User(user_id=admin_id, name="Test Admin", email=admin_email, phone="9000000000", password_hash=hash_password(old_password), active=True, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+    worker = User(user_id=worker_id, name="Test Pickup", email=worker_email, phone="9000000001", password_hash=hash_password(old_password), active=True, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+    with Session(engine) as db:
+        db.add_all([
+            Department(department_code="ADMIN", display_name="Administration"),
+            Department(department_code="PICKUP", display_name="Pickup"),
+            StaffRole(role_code="ADMINISTRATOR", display_name="Administrator"),
+            StaffRole(role_code="PICKUP_AGENT", display_name="Pickup Agent"),
+            admin, worker,
+        ])
+        db.flush()
+        db.add_all([
+            Staff(staff_id="OBUSTF000001", employee_id="TEST-ADMIN", department_code="ADMIN", role_code="ADMINISTRATOR", active=True, user_id=admin.user_id),
+            Staff(staff_id="OBUSTF000002", employee_id="TEST-PICKUP", department_code="PICKUP", role_code="PICKUP_AGENT", active=True, user_id=worker.user_id),
+        ])
+        db.commit()
+
+    test_app = FastAPI()
+    test_app.add_middleware(SessionMiddleware, secret_key="test-session-secret-long-enough-for-local-test")
+    test_app.post("/api/auth/login")(main.login)
+    test_app.post("/api/admin/staff/{staff_id}/password")(admin_reset_staff_password)
+
+    def override_get_db():
+        with Session(engine) as db:
+            yield db
+
+    test_app.dependency_overrides[main.get_db] = override_get_db
+    with TestClient(test_app) as unauthenticated:
+        assert unauthenticated.post("/api/admin/staff/OBUSTF000002/password", json={"password": "NewTemporaryPassword123!"}).status_code == 401
+
+    with TestClient(test_app) as administrator:
+        assert administrator.post("/api/auth/login", json={"email": admin_email, "password": old_password}).status_code == 200
+        reset = administrator.post("/api/admin/staff/OBUSTF000001/password", json={"password": "NewAdminPassword123!"})
+        assert reset.status_code == 200, reset.text
+        assert reset.json()["password_reset"] is True
+        assert "password" not in reset.json()
+        with Session(engine) as db:
+            assert verify_password("NewAdminPassword123!", db.get(User, admin_id).password_hash)
+        assert administrator.post("/api/auth/login", json={"email": admin_email, "password": "NewAdminPassword123!"}).status_code == 200
+        worker_reset = administrator.post("/api/admin/staff/OBUSTF000002/password", json={"password": "NewPickupPassword123!"})
+        assert worker_reset.status_code == 200, worker_reset.text
+        with Session(engine) as db:
+            assert verify_password("NewPickupPassword123!", db.get(User, worker_id).password_hash)
+
+    with TestClient(test_app) as non_admin:
+        assert non_admin.post("/api/auth/login", json={"email": worker_email, "password": "NewPickupPassword123!"}).status_code == 200
+        denied = non_admin.post("/api/admin/staff/OBUSTF000002/password", json={"password": "AnotherTempPassword123!"})
+        assert denied.status_code == 403
     engine.dispose()
 
 

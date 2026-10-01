@@ -209,6 +209,18 @@ body:has(#app-shell:not(.hidden)) .modal-backdrop{background:rgba(12,30,54,.48)}
 .addressbook-entry{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:17px;border:1px solid #EBDDC5;border-radius:10px;background:#fff}
 .addressbook-entry p{margin:5px 0;color:#4F5D6A;font-size:13px;line-height:1.5}
 .addressbook-entry small{color:#665d4d}
+.staff-password-guidance{max-width:62ch;margin:-5px 0 15px;color:var(--muted);font-size:12px;line-height:1.55}
+.staff-password-dialog{width:min(560px,calc(100% - 28px));max-height:min(90vh,620px);margin:auto;padding:26px;border:1px solid #EBDDC5;border-radius:13px;background:#FFFDF8;color:#0C1E36;box-shadow:0 24px 72px rgba(12,30,54,.26)}
+.staff-password-dialog::backdrop{background:rgba(12,30,54,.55);backdrop-filter:blur(2px)}
+.staff-password-dialog h2{margin:0 32px 8px 0;font-size:22px;letter-spacing:-.025em}
+.staff-password-dialog p{font-size:13px;line-height:1.55}
+.staff-password-dialog label{display:block;margin:20px 0 7px;font-size:13px;font-weight:750}
+.staff-password-warning{margin:16px 0;padding:13px 15px;border-radius:8px;background:#FFF3D9;color:#5D481F}
+.staff-password-result{min-height:20px;margin-top:10px;color:#315B42;font-size:12px;line-height:1.5}
+.staff-password-result .error-text{display:block;margin:0}
+.staff-password-actions{display:flex;align-items:center;flex-wrap:wrap;gap:9px;margin-top:18px}
+.staff-password-action-spacer{flex:1 1 auto}
+.staff-password-dialog .button{font-size:12px}
 @media(max-width:760px){
   #app-shell.customer-workspace{grid-template-columns:minmax(0,1fr);grid-template-rows:66px auto minmax(0,1fr)}
   #app-shell.customer-workspace>.customer-header{grid-row:1;padding:0 15px}
@@ -228,6 +240,9 @@ body:has(#app-shell:not(.hidden)) .modal-backdrop{background:rgba(12,30,54,.48)}
   .customer-footer>span:nth-child(2){flex-basis:100%;order:2}
   .addressbook-layout{grid-template-columns:1fr}
   .addressbook-entry{align-items:flex-start;flex-direction:column}
+  .staff-password-dialog{padding:22px 18px}
+  .staff-password-actions{align-items:stretch}
+  .staff-password-action-spacer{display:none}
 }
 
 /* Landing-page hierarchy: offers first, exact booking quote at the end. */

@@ -12,6 +12,7 @@ All JSON endpoints use a signed session cookie. Login first, then send the cooki
 | GET | `/api/auth/me` | Public | Current account projection |
 | GET | `/api/admin/staff` | Administrator | List staff accounts, roles and departments |
 | POST | `/api/admin/staff` | Administrator | Create a role-specific staff login |
+| POST | `/api/admin/staff/{staff_id}/password` | Administrator | Set a new password for an active staff login; passwords are never returned |
 | GET | `/api/notifications` | Authenticated | Customer notifications or staff notification overview |
 | POST | `/api/notifications/{id}/read` | Owner/staff | Mark an in-app notification as read |
 | GET | `/api/complaints` | Customer/support staff | List owned or operational complaints |

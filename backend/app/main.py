@@ -111,6 +111,10 @@ class StaffAccountIn(AuthIn):
     role_code: str = Field(min_length=2, max_length=30)
 
 
+class StaffPasswordResetIn(BaseModel):
+    password: str = Field(min_length=12, max_length=200)
+
+
 def external_json(url: str, payload: dict | None = None):
     body = json.dumps(payload).encode() if payload is not None else None
     request = UrlRequest(url, data=body, headers={"Content-Type": "application/json", "User-Agent": "OptiGo/1.0 address lookup"}, method="POST" if body else "GET")
@@ -541,6 +545,22 @@ def create_staff_account(payload: StaffAccountIn, request: Request, db: Session 
         "role_code": staff.role_code,
         "active": True,
     }
+
+
+@app.post("/api/admin/staff/{staff_id}/password")
+def admin_reset_staff_password(staff_id: str, payload: StaffPasswordResetIn, request: Request, db: Session = Depends(get_db)):
+    """Set an existing active staff login password; only an administrator can do this."""
+    required_staff(request, db, {"ADMINISTRATOR"})
+    staff = db.get(Staff, staff_id)
+    if not staff or not staff.active:
+        raise HTTPException(404, "Active staff account not found")
+    user = db.get(User, staff.user_id)
+    if not user or not user.active:
+        raise HTTPException(404, "Active staff account not found")
+    user.password_hash = hash_password(payload.password)
+    user.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    return {"password_reset": True, "staff_id": staff.staff_id, "user_id": user.user_id, "name": user.name, "email": user.email, "role_code": staff.role_code}
 
 
 @app.delete("/api/auth/account")
