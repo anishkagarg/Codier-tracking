@@ -111,6 +111,14 @@ class PasswordResetOTP(Base):
     created_at = Column(DateTime(timezone=True), nullable=False)
 
 
+class AdminRecoveryState(Base):
+    """Persistent one-time latch for guarded recovery of the existing admin login."""
+    __tablename__ = "admin_recovery_state"
+    singleton_id = Column(String(20), primary_key=True, nullable=False)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    admin_user_id = Column(String(12), ForeignKey("users.user_id"), nullable=True)
+
+
 class Customer(Base):
     __tablename__ = "customers"
     customer_id = Column(String(40), primary_key=True, nullable=False)

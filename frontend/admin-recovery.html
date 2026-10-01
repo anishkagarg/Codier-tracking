@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="referrer" content="no-referrer">
+  <title>Administrator recovery | OptiGo</title>
+  <style>
+    :root{color-scheme:light;--navy:#0b2038;--gold:#df9824;--ink:#13263e;--muted:#667487;--line:#e8dcc7;--paper:#fffaf0}
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;background:linear-gradient(145deg,#0b2038 0%,#133957 58%,#1c5269 100%);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--ink);display:grid;place-items:center;padding:24px}
+    main{width:min(100%,560px);background:#fff;border-radius:18px;box-shadow:0 24px 70px #06132388;overflow:hidden}
+    header{background:#f8d58d;border-bottom:5px solid var(--gold);padding:18px 26px;display:flex;align-items:center;justify-content:space-between;gap:20px}
+    header img{display:block;width:164px;height:auto}header a:last-child{color:var(--navy);font-weight:700;text-decoration:none}
+    .content{padding:32px clamp(22px,6vw,42px) 38px}h1{font-size:clamp(25px,5vw,32px);line-height:1.15;margin:0 0 12px;color:var(--navy)}.intro{color:var(--muted);margin:0 0 22px}
+    .warning{background:var(--paper);border-left:4px solid var(--gold);padding:13px 15px;margin:0 0 24px;color:#57462d;font-size:14px}
+    label{display:block;font-weight:650;margin:17px 0 6px}input{display:block;width:100%;padding:12px 13px;border:1px solid #d9dfe6;border-radius:8px;font:inherit;color:var(--ink);background:#fff}input:focus{outline:3px solid #df982433;border-color:var(--gold)}small{display:block;color:var(--muted);font-weight:400;margin-top:5px}
+    .confirm{display:grid;grid-template-columns:20px 1fr;gap:10px;align-items:start;font-weight:450;font-size:14px;color:#35455a}.confirm input{width:18px;height:18px;margin:3px 0 0;accent-color:var(--gold)}
+    button{width:100%;border:0;border-radius:9px;background:var(--gold);color:var(--navy);padding:14px 18px;font:inherit;font-weight:750;font-size:16px;line-height:1.2;cursor:pointer;margin-top:20px}button:disabled{opacity:.6;cursor:wait}
+    #result{min-height:24px;margin:14px 0 0;font-size:14px;color:#345}#result.error{color:#a12626}#result.success{color:#17643c}.foot{margin:24px 0 0;color:var(--muted);font-size:13px}
+    @media(max-width:440px){body{padding:12px}header{padding:15px 18px}header img{width:136px}.content{padding-top:24px}}
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <a href="./" aria-label="OptiGo home"><img src="assets/OptiGo_Logo_Smooth.svg" alt="OptiGo"></a>
+      <a href="./">Return to website</a>
+    </header>
+    <section class="content">
+      <h1>Recover administrator access</h1>
+      <p class="intro">This one-time recovery updates the existing administrator account. It does not create another administrator or change any department accounts.</p>
+      <p class="warning">Only continue if you control the Render service and its production database. The email and password you enter will replace the current administrator’s OptiGo sign-in credentials. This does not change a Gmail password.</p>
+      <form id="recovery-form">
+        <label for="recovery-key">One-time recovery key</label>
+        <input id="recovery-key" name="recovery_key" type="password" minlength="32" maxlength="256" autocomplete="off" required>
+        <small>Use the value you set in the Render service environment as ADMIN_RECOVERY_KEY.</small>
+
+        <label for="admin-email">Administrator sign-in email</label>
+        <input id="admin-email" name="email" type="email" maxlength="254" autocomplete="email" required>
+
+        <label for="new-password">New OptiGo password</label>
+        <input id="new-password" name="password" type="password" minlength="12" maxlength="200" autocomplete="new-password" required>
+
+        <label for="confirm-password">Confirm new password</label>
+        <input id="confirm-password" name="confirm_password" type="password" minlength="12" maxlength="200" autocomplete="new-password" required>
+
+        <label class="confirm"><input name="acknowledge" type="checkbox" required><span>I understand this replaces the existing administrator email and password, and the recovery can only be used once.</span></label>
+        <button id="submit" type="submit">Recover administrator access</button>
+        <p id="result" role="status" aria-live="polite"></p>
+      </form>
+      <p class="foot">The recovery key is checked by the OptiGo API, is never saved by this page, and the backend permanently disables this operation after one successful recovery.</p>
+    </section>
+  </main>
+  <script src="config.js"></script>
+  <script>
+    const form=document.querySelector("#recovery-form"),result=document.querySelector("#result"),button=document.querySelector("#submit");
+    form.addEventListener("submit",async event=>{
+      event.preventDefault();result.className="";result.textContent="";
+      if(location.protocol!=="https:"){result.className="error";result.textContent="For your safety, open this page over HTTPS.";return}
+      const data=new FormData(form),password=data.get("password");
+      if(password!==data.get("confirm_password")){result.className="error";result.textContent="The passwords do not match.";return}
+      button.disabled=true;button.textContent="Recovering…";
+      try{
+        const response=await fetch(`${window.OPTIGO_API_BASE}/api/admin/recovery`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({recovery_key:data.get("recovery_key"),email:data.get("email"),password})});
+        const body=await response.json().catch(()=>({}));
+        if(!response.ok)throw new Error(body.detail||"Recovery could not be completed.");
+        result.className="success";result.textContent=`Administrator access recovered for ${body.email}. OptiGo user ID: ${body.user_id}. Sign in from the website with the new email and password.`;
+        form.reset();
+      }catch(error){result.className="error";result.textContent=error.message||"Recovery could not be completed. Check your Render deployment and try again."}
+      finally{button.disabled=false;button.textContent="Recover administrator access"}
+    });
+  </script>
+</body>
+</html>

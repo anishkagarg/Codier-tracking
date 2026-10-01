@@ -14,8 +14,8 @@ from fastapi.testclient import TestClient
 from app.db import Base
 from app.security import hash_otp, hash_password, verify_otp, verify_password
 from app.services import STATUS_TRANSITIONS, apply_shipping_offers, create_booking, price_for_weight
-from app.models import Address, Customer, Department, Invoice, PasswordResetOTP, Staff, StaffRole, User
-from app.main import AddressIn, AuthIn, PasswordResetIn, PasswordResetRequestIn, PriceQuoteIn, StaffPasswordResetIn, admin_reset_staff_password, confirm_password_reset, create_address, demo_online_enabled, list_addresses, location_cities, login, public_pricing_quote, razorpay_test_keys_ready, request_password_reset, validate_startup_configuration
+from app.models import Address, AdminRecoveryState, Customer, Department, Invoice, PasswordResetOTP, Staff, StaffRole, User
+from app.main import AddressIn, AdminRecoveryIn, AuthIn, PasswordResetIn, PasswordResetRequestIn, PriceQuoteIn, StaffPasswordResetIn, admin_reset_staff_password, confirm_password_reset, create_address, demo_online_enabled, list_addresses, location_cities, login, public_pricing_quote, razorpay_test_keys_ready, recover_admin_access, request_password_reset, validate_startup_configuration
 from starlette.requests import Request
 
 
@@ -260,6 +260,56 @@ def test_password_reset_rejects_invalid_code_then_accepts_valid_code():
     assert result["password_reset"] is True
     assert verify_password("NewPassword123!", user.password_hash)
     db.delete.assert_called_once_with(recovery)
+
+
+def test_admin_recovery_updates_only_existing_admin_once_and_rejects_wrong_key(monkeypatch):
+    from app import main
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    tables = [Department.__table__, StaffRole.__table__, User.__table__, Staff.__table__, AdminRecoveryState.__table__]
+    Base.metadata.create_all(engine, tables=tables)
+    now = datetime.now(timezone.utc)
+    original_admin = User(
+        user_id="OBUUSR000001", name="Existing Admin", email="old-admin@example.test", phone="9000000000",
+        password_hash=hash_password("OldAdminPassword123!"), active=True, created_at=now, updated_at=now,
+    )
+    with Session(engine) as db:
+        db.add_all([
+            Department(department_code="ADMIN", display_name="Administration"),
+            StaffRole(role_code="ADMINISTRATOR", display_name="Administrator"),
+            original_admin,
+            Staff(staff_id="OBUSTF000001", employee_id="ADMIN-1", department_code="ADMIN", role_code="ADMINISTRATOR", active=True, user_id=original_admin.user_id),
+            AdminRecoveryState(singleton_id="admin"),
+        ])
+        db.commit()
+
+    test_app = FastAPI()
+    test_app.post("/api/admin/recovery")(main.recover_admin_access)
+
+    def override_get_db():
+        with Session(engine) as db:
+            yield db
+
+    test_app.dependency_overrides[main.get_db] = override_get_db
+    monkeypatch.setenv("ADMIN_RECOVERY_KEY", "a-long-one-time-recovery-key-for-tests")
+    payload = {
+        "recovery_key": "a-long-one-time-recovery-key-for-tests",
+        "email": "new-admin@example.test",
+        "password": "NewAdministratorPassword123!",
+    }
+    with TestClient(test_app) as client:
+        assert client.post("/api/admin/recovery", json={**payload, "recovery_key": "incorrect-recovery-key-value-000000"}).status_code == 403
+        recovered = client.post("/api/admin/recovery", json=payload)
+        assert recovered.status_code == 200, recovered.text
+        assert recovered.json()["user_id"] == "OBUUSR000001"
+        assert recovered.json()["email"] == "new-admin@example.test"
+        with Session(engine) as db:
+            admin = db.get(User, "OBUUSR000001")
+            assert admin.email == "new-admin@example.test"
+            assert verify_password(payload["password"], admin.password_hash)
+            assert db.query(Staff).filter_by(user_id=admin.user_id, role_code="ADMINISTRATOR").count() == 1
+        assert client.post("/api/admin/recovery", json=payload).status_code == 410
+    engine.dispose()
 
 
 def test_otp_hash_is_not_the_otp():

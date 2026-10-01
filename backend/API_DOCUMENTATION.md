@@ -8,6 +8,9 @@ All JSON endpoints use a signed session cookie. Login first, then send the cooki
 | GET | `/health/ready` | Public | PostgreSQL readiness |
 | POST | `/api/auth/register` | Public | Create customer account |
 | POST | `/api/auth/login` | Public | Start session |
+| POST | `/api/auth/password-reset/request` | Public; sends OTP to the account's registered email | Start one-time password reset |
+| POST | `/api/auth/password-reset/confirm` | Public; valid short-lived OTP required | Complete password reset |
+| POST | `/api/admin/recovery` | One-time Render recovery key | Replace the existing active administrator's sign-in email and password |
 | POST | `/api/auth/logout` | Authenticated | End session |
 | GET | `/api/auth/me` | Public | Current account projection |
 | GET | `/api/admin/staff` | Administrator | List staff accounts, roles and departments |
@@ -74,6 +77,10 @@ The `Idempotency-Key` header must remain the same for retries of one booking att
 New bookings create a pickup assignment. Completing pickup creates a warehouse assignment; recording its `RECEIVED` scan moves the shipment to `IN_TRANSIT` and creates a delivery assignment. The delivery agent starts delivery, requests an OTP (stored in PostgreSQL and shown in the customer's Notifications), and verifies it at handover. Cash bookings require explicit cash-collection confirmation before delivery; the payment and invoice are then updated together. Existing unassigned bookings are not silently backfilled.
 
 Staff accounts are not created through public registration. An authenticated administrator creates a separate login through `POST /api/admin/staff`, choosing an existing department and staff role. This allows warehouse, pickup and delivery workspaces to remain usable without allowing public users to grant themselves staff access.
+
+### Emergency administrator recovery
+
+The static recovery form is `https://anishkagarg.github.io/Courier-Tracking/admin-recovery.html`. It calls `POST /api/admin/recovery`, which requires a high-entropy `ADMIN_RECOVERY_KEY` configured in Render, exactly one active administrator, and an unused database recovery latch. It changes the existing administrator account's sign-in email and password without creating another administrator; the submitted password is hashed and never returned. The first successful request permanently consumes the latch, so all later calls fail. If more or fewer than one active administrator exists, or the requested email belongs to another account, recovery fails without changing account data. Remove `ADMIN_RECOVERY_KEY` from Render after use as defense in depth.
 
 Razorpay test mode requires configured `rzp_test_` keys. Without them, online checkout is disabled; a local simulation cannot mark an invoice paid. Verification checks the Checkout signature and fetches the Razorpay order and payment to confirm the invoice receipt, amount, currency, and captured status before updating payment records.
 

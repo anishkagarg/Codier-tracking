@@ -22,8 +22,8 @@ from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 from typing import Literal
 
-from .db import engine, get_db
-from .models import Address, AssignmentStatus, BookingIdempotency, Complaint, Customer, DeliveryType, Department, Hub, Invoice, LocationUpdate, Notification, PasswordResetOTP, Payment, PricingRule, Refund, Route, Shipment, ShipmentAssignment, ShipmentStatusHistory, Staff, StaffRole, User, Vehicle, WarehouseScan
+from .db import SessionLocal, engine, get_db
+from .models import Address, AdminRecoveryState, AssignmentStatus, BookingIdempotency, Complaint, Customer, DeliveryType, Department, Hub, Invoice, LocationUpdate, Notification, PasswordResetOTP, Payment, PricingRule, Refund, Route, Shipment, ShipmentAssignment, ShipmentStatusHistory, Staff, StaffRole, User, Vehicle, WarehouseScan
 from .security import hash_otp, hash_password, verify_otp, verify_password
 from .services import add_location_and_history, apply_shipping_offers, assign_task, auto_assign_task, create_booking, delivery_assessment, haversine_km, latest_gps_location, new_id, optimize_route, price_for_weight, public_tracking, request_delivery_otp, send_password_reset_email, transition_assignment, verify_delivery
 
@@ -67,6 +67,16 @@ async def lifespan(_app: FastAPI):
     # Additive migration: creates only the new table and leaves existing records untouched.
     BookingIdempotency.__table__.create(bind=engine, checkfirst=True)
     PasswordResetOTP.__table__.create(bind=engine, checkfirst=True)
+    AdminRecoveryState.__table__.create(bind=engine, checkfirst=True)
+    # Initialize a persistent one-use latch. Concurrent instances may race on
+    # first startup; a unique primary key makes the losing insert harmless.
+    with SessionLocal() as db:
+        if not db.get(AdminRecoveryState, "admin"):
+            db.add(AdminRecoveryState(singleton_id="admin"))
+            try:
+                db.commit()
+            except IntegrityError:
+                db.rollback()
     with engine.begin() as connection:
         connection.execute(text("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS preferred_payment_mode VARCHAR(20)"))
         connection.execute(text("ALTER TABLE notifications ALTER COLUMN read_at DROP NOT NULL"))
@@ -112,6 +122,12 @@ class StaffAccountIn(AuthIn):
 
 
 class StaffPasswordResetIn(BaseModel):
+    password: str = Field(min_length=12, max_length=200)
+
+
+class AdminRecoveryIn(BaseModel):
+    recovery_key: str = Field(min_length=32, max_length=256)
+    email: str = Field(min_length=5, max_length=254, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
     password: str = Field(min_length=12, max_length=200)
 
 
@@ -424,6 +440,66 @@ def request_password_reset(payload: PasswordResetRequestIn, db: Session = Depend
         db.add(recovery)
         db.commit()
     return {"message": "If that user ID is active, a reset code has been sent to the registered email address."}
+
+
+@app.post("/api/admin/recovery")
+def recover_admin_access(payload: AdminRecoveryIn, db: Session = Depends(get_db)):
+    """One-time, secret-gated recovery of the existing administrator login.
+
+    The Render-only ADMIN_RECOVERY_KEY must be a high-entropy random value.
+    The operation changes only the existing admin account's email/password,
+    then permanently consumes the database latch.
+    """
+    expected_key = os.getenv("ADMIN_RECOVERY_KEY", "")
+    if len(expected_key) < 32 or not hmac.compare_digest(payload.recovery_key, expected_key):
+        raise HTTPException(403, "Recovery is unavailable or the recovery key is invalid")
+
+    recovery_state = db.scalar(
+        select(AdminRecoveryState)
+        .where(AdminRecoveryState.singleton_id == "admin")
+        .with_for_update()
+    )
+    if not recovery_state:
+        raise HTTPException(503, "Admin recovery is not initialized. Contact OptiGo support.")
+    if recovery_state.completed_at:
+        raise HTTPException(410, "The one-time administrator recovery has already been used")
+
+    active_admins = db.execute(
+        select(Staff, User)
+        .join(User, Staff.user_id == User.user_id)
+        .where(
+            Staff.role_code == "ADMINISTRATOR",
+            Staff.active.is_(True),
+            User.active.is_(True),
+        )
+        .with_for_update()
+    ).all()
+    if len(active_admins) != 1:
+        raise HTTPException(409, "Recovery requires exactly one active administrator account")
+
+    _staff, admin_user = active_admins[0]
+    email = payload.email.strip().lower()
+    email_owner = db.scalar(select(User).where(func.lower(User.email) == email))
+    if email_owner and email_owner.user_id != admin_user.user_id:
+        raise HTTPException(409, "That email is already assigned to another account")
+
+    now = datetime.now(timezone.utc)
+    admin_user.email = email
+    admin_user.password_hash = hash_password(payload.password)
+    admin_user.updated_at = now
+    recovery_state.completed_at = now
+    recovery_state.admin_user_id = admin_user.user_id
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(409, "The recovery could not be completed because the account changed") from exc
+    return {
+        "recovered": True,
+        "user_id": admin_user.user_id,
+        "email": admin_user.email,
+        "message": "Administrator access recovered. Sign in with the new email and password.",
+    }
 
 
 @app.post("/api/auth/password-reset/confirm")

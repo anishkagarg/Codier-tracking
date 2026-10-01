@@ -26,5 +26,7 @@ services:
         value: "false"
       - key: EMAIL_TRANSPORT
         value: in_app
+      - key: ADMIN_RECOVERY_KEY
+        sync: false
       - key: SMS_TRANSPORT
         value: disabled

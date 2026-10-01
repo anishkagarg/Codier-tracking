@@ -53,6 +53,8 @@ Full request and response details are in `API_DOCUMENTATION.md`.
 
 Run automated tests with `python -m pytest -q`. `tests/` covers password hashing, role gates, public tracking privacy, status transition rules and API contract behavior. `scripts/live_smoke.py` runs non-destructive read-only checks against the configured PostgreSQL database and verifies the live schema counts. The live smoke result is recorded in `LIVE_SMOKE_TEST.md`.
 
-## No schema migration
+## Additive recovery-state table
 
-No database migration was applied. The current database already has the required tables and relationships. Two live-schema limitations affecting new writes are documented in `LIMITATIONS.md`: assignment rows require non-null scheduling/reference fields, and OTP rows require verification timestamps.
+At startup the service creates the small `admin_recovery_state` table if it is absent. It contains only a one-use recovery latch and does not modify existing users, staff, or operational records. Other live-schema limitations affecting new writes are documented in `LIMITATIONS.md`.
+
+The emergency recovery page is documented in `API_DOCUMENTATION.md`. Configure a high-entropy `ADMIN_RECOVERY_KEY` in Render only when needed, complete recovery once, then remove the environment variable. The persistent database latch prevents reuse even if the environment variable is accidentally left configured.
