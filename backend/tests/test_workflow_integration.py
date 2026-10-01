@@ -5,6 +5,7 @@ The outer transaction is rolled back; this test does not leave a shipment behind
 
 import os
 import re
+from datetime import datetime, timezone
 from uuid import uuid4
 
 import pytest
