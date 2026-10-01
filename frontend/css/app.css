@@ -457,6 +457,10 @@ body:has(#auth-shell:not(.hidden)) #landing-shell{filter:blur(3px);pointer-event
 .shipment-lost-notice{margin:16px 0 0;padding:13px 15px;border:1px solid #E8B9C5;border-radius:8px;background:#FFF2F4;color:#782D43;font-size:13px}
 .shipment-lost-notice p{margin:4px 0 0;font-size:12px}
 .shipment-detail-error{margin:18px 0;padding:16px;border:1px solid #E8B9C5;border-radius:9px;background:#FFF2F4;color:#782D43}
+button.link-button{appearance:none;padding:0;border:0;background:transparent;color:var(--primary);font:inherit;font-weight:800;text-align:left;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+button.link-button:hover{color:var(--primary-hover)}
+.data-table tr.shipment-click-row{cursor:pointer}
+.data-table tr.shipment-click-row:focus-visible{outline:3px solid #034365;outline-offset:-3px}
 .shipment-delivery-proof{display:grid;gap:8px;margin:18px 0;padding:17px 19px;border:1px solid #D7E7D8;border-radius:10px;background:#F3F8F1}
 .shipment-delivery-proof h3{margin:0;font-size:15px}
 .shipment-delivery-proof p{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:0;color:#365445;font-size:13px;line-height:1.55}
