@@ -189,7 +189,7 @@ body:has(#app-shell:not(.hidden)) .modal-backdrop{background:rgba(12,30,54,.48)}
 
 /* Keep long staff navigation usable without tinting the whole sidebar. */
 #app-shell:not(.customer-workspace) .sidebar{overflow-y:auto;overscroll-behavior-y:contain;scrollbar-width:thin;scrollbar-color:#D9A354 #0C1E36}
-#app-shell:not(.customer-workspace) .sidebar-brand{flex:0 0 auto;align-self:stretch;justify-content:center;min-height:74px;margin:0 0 28px;padding:10px;border-radius:8px;background:#F7D28C}
+#app-shell:not(.customer-workspace) .sidebar-brand{flex:0 0 auto;align-self:stretch;justify-content:center;min-height:74px;margin:0 -15px 28px;padding:10px 24px;border-radius:0;background:#F7D28C}
 #app-shell:not(.customer-workspace) .sidebar>.nav-label,#app-shell:not(.customer-workspace) .sidebar>.nav-list,#app-shell:not(.customer-workspace) .sidebar>.sidebar-account-actions{flex:0 0 auto}
 #app-shell.customer-workspace>.page-wrap{grid-column:2;grid-row:2;display:flex;flex-direction:column;min-width:0;min-height:calc(100vh - 76px);margin:0}
 #app-shell:not(.customer-workspace)>.page-wrap>.customer-footer{display:none}
