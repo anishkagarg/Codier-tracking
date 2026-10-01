@@ -478,3 +478,55 @@ def test_location_lookup_failure_keeps_manual_entry_available(monkeypatch):
     assert result["cities"] == []
     assert result["available"] is False
     assert "manually" in result["message"]
+
+
+def test_shipment_tracking_detail_returns_all_recorded_gps_points_and_hub_scans(monkeypatch):
+    from app import main
+
+    user = SimpleNamespace(user_id="STAFF000001")
+    staff = SimpleNamespace(staff_id="STAFF000001")
+    shipment = SimpleNamespace(shipment_id="SHIP000001", customer_id="CUSTOMER001", current_status="OUT_FOR_DELIVERY")
+    start = datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc)
+    locations = [
+        SimpleNamespace(location_id="LOC-BOOKED", recorded_at=start, location_text="Mumbai", scan_type="APPLICATION"),
+        SimpleNamespace(location_id="LOC-GPS-1", recorded_at=start.replace(hour=9), location_text="GPS:19.076000, 72.877700", scan_type="GPS"),
+        SimpleNamespace(location_id="LOC-GPS-2", recorded_at=start.replace(hour=10), location_text="GPS:19.117600, 72.906000", scan_type="GPS"),
+    ]
+    history = [SimpleNamespace(location_id="LOC-BOOKED", new_status="BOOKED", event_at=start, remarks="Booking created")]
+    scan = SimpleNamespace(scan_id="SCAN000001", scan_type="RECEIVED", scanned_at=start.replace(hour=8, minute=30), hub_id="HUB000001")
+    hub = SimpleNamespace(hub_id="HUB000001", name="Andheri Sorting Hub", city="Mumbai", state="Maharashtra", postal_code="400053")
+    monkeypatch.setattr(main, "required_user", lambda *_args: user)
+    monkeypatch.setattr(main, "staff_for", lambda *_args: staff)
+    monkeypatch.setattr(main, "shipment_view", lambda *_args, **_kwargs: {"shipment_id": shipment.shipment_id, "sender": {"city": "Mumbai"}, "receiver": {"city": "Pune"}})
+    monkeypatch.setattr(main, "delivery_assessment", lambda *_args: {"state": "ON_SCHEDULE"})
+    monkeypatch.setattr(main, "latest_gps_location", lambda *_args: {"latitude": 19.1176, "longitude": 72.906})
+    db = Mock()
+    db.get.return_value = shipment
+    db.scalar.return_value = None
+    db.scalars.side_effect = [SimpleNamespace(all=lambda: locations), SimpleNamespace(all=lambda: history)]
+    db.execute.return_value.all.return_value = [(scan, hub)]
+
+    result = main.shipment_tracking_detail(shipment.shipment_id, Mock(), db)
+
+    points = [event for event in result["movement_events"] if event["kind"] == "GPS"]
+    assert len(points) == 2
+    assert [(point["latitude"], point["longitude"]) for point in points] == [(19.076, 72.8777), (19.1176, 72.906)]
+    assert result["warehouse_scans"][0]["hub_name"] == "Andheri Sorting Hub"
+    assert result["movement_events"][-1]["event_at"] == start.replace(hour=10).isoformat()
+
+
+def test_shipment_tracking_detail_hides_another_customers_shipment(monkeypatch):
+    from fastapi import HTTPException
+    from app import main
+
+    user = SimpleNamespace(user_id="CUSTOMER0001")
+    shipment = SimpleNamespace(shipment_id="SHIP000001", customer_id="ANOTHER001")
+    monkeypatch.setattr(main, "required_user", lambda *_args: user)
+    monkeypatch.setattr(main, "staff_for", lambda *_args: None)
+    db = Mock()
+    db.get.return_value = shipment
+    db.scalar.return_value = None
+
+    with pytest.raises(HTTPException) as error:
+        main.shipment_tracking_detail(shipment.shipment_id, Mock(), db)
+    assert error.value.status_code == 404

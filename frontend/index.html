@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="OptiGo courier tracking and operations workspace">
   <title>OptiGo | Courier Operations</title>
-  <link rel="stylesheet" href="css/app.css?v=finance-workbench-20261001-2">
+  <link rel="stylesheet" href="css/app.css?v=shipment-details-20261002-2">
 </head>
 <body>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
@@ -148,7 +148,6 @@
       <h2>User Services</h2>
       <nav aria-label="User services navigation">
         <button class="customer-service-link" data-view="tracking">Track My Order</button>
-        <button class="customer-service-link" data-view="pickup">Schedule a Pickup</button>
         <button class="customer-service-link" data-view="booking">Book a shipment</button>
         <button class="customer-service-link" data-view="addressbook">AddressBook</button>
         <button class="customer-service-link" data-view="shipments">Booking history</button>
@@ -209,9 +208,15 @@
       </div>
     </div>
   </div>
+  <dialog id="shipment-detail-dialog" class="shipment-detail-dialog" aria-labelledby="shipment-detail-title" aria-describedby="shipment-detail-subtitle">
+    <div class="shipment-detail-shell">
+      <div class="shipment-detail-header"><div><p class="eyebrow">SHIPMENT JOURNEY</p><h2 id="shipment-detail-title">Shipment details</h2><p id="shipment-detail-subtitle">Recorded status changes, warehouse receipts and location updates.</p></div><button type="button" class="icon-button" id="shipment-detail-close" aria-label="Close shipment details">×</button></div>
+      <div id="shipment-detail-content" aria-live="polite"><div class="empty-state">Loading shipment history…</div></div>
+    </div>
+  </dialog>
   <script src="config.js?v=api-connection-20261001-2"></script>
   <script src="js/india-locations.js?v=f2ade32"></script>
   <script src="js/booking-fields.js?v=customer-address-prefill-20261001-1"></script>
-  <script src="js/app.js?v=finance-workbench-20261001-2"></script>
+  <script src="js/app.js?v=shipment-details-20261002-2"></script>
 </body>
 </html>

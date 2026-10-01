@@ -25,7 +25,7 @@ from typing import Literal
 from .db import SessionLocal, engine, get_db
 from .models import Address, AdminRecoveryState, AssignmentStatus, BookingIdempotency, CodCollection, Complaint, Customer, DeliveryType, Department, FinancePosition, FinanceTransaction, Hub, Invoice, LocationUpdate, Notification, PasswordResetOTP, Payment, PricingRule, Refund, Route, Shipment, ShipmentAssignment, ShipmentStatusHistory, Staff, StaffRole, User, Vehicle, WarehouseScan
 from .security import hash_otp, hash_password, verify_otp, verify_password
-from .services import add_location_and_history, apply_shipping_offers, assign_task, auto_assign_task, create_booking, delivery_assessment, haversine_km, latest_gps_location, new_id, optimize_route, price_for_weight, public_tracking, request_delivery_otp, send_password_reset_email, transition_assignment, verify_delivery
+from .services import add_location_and_history, apply_shipping_offers, assign_task, auto_assign_task, create_booking, delivery_assessment, haversine_km, latest_gps_location, new_id, optimize_route, parse_gps_location, price_for_weight, public_tracking, request_delivery_otp, send_password_reset_email, transition_assignment, verify_delivery
 
 logger = logging.getLogger(__name__)
 
@@ -896,6 +896,96 @@ def get_shipment(shipment_id: str, request: Request, db: Session = Depends(get_d
     return shipment_view(db, shipment, include_private=True)
 
 
+@app.get("/api/shipments/{shipment_id}/tracking")
+def shipment_tracking_detail(shipment_id: str, request: Request, db: Session = Depends(get_db)):
+    """Return the authenticated shipment journey, including all recorded GPS points and warehouse receipts."""
+    user = required_user(request, db)
+    shipment = db.get(Shipment, shipment_id)
+    staff = staff_for(db, user)
+    customer = db.scalar(select(Customer).where(Customer.user_id == user.user_id))
+    if not shipment or (not staff and (not customer or shipment.customer_id != customer.customer_id)):
+        raise HTTPException(404, "Shipment not found")
+
+    locations = db.scalars(
+        select(LocationUpdate)
+        .where(LocationUpdate.shipment_id == shipment_id)
+        .order_by(LocationUpdate.recorded_at, LocationUpdate.location_id)
+    ).all()
+    location_by_id = {location.location_id: location for location in locations}
+    history = db.scalars(
+        select(ShipmentStatusHistory)
+        .where(ShipmentStatusHistory.shipment_id == shipment_id)
+        .order_by(ShipmentStatusHistory.sequence_no)
+    ).all()
+    movement_events = []
+    history_location_ids = set()
+    for event in history:
+        location = location_by_id.get(event.location_id)
+        if location:
+            history_location_ids.add(location.location_id)
+        movement_events.append({
+            "kind": "STATUS",
+            "status": event.new_status,
+            "event_at": event.event_at.isoformat(),
+            "location_text": location.location_text if location else None,
+            "scan_type": location.scan_type if location else None,
+            "remarks": event.remarks,
+        })
+    for location in locations:
+        if location.location_id in history_location_ids:
+            continue
+        event = {
+            "kind": "GPS" if location.scan_type.upper() == "GPS" else "LOCATION",
+            "event_at": location.recorded_at.isoformat(),
+            "scan_type": location.scan_type,
+            "remarks": "Courier GPS point recorded" if location.scan_type.upper() == "GPS" else "Additional location scan recorded",
+        }
+        if location.scan_type.upper() == "GPS":
+            coordinates = parse_gps_location(location.location_text)
+            if coordinates:
+                event.update({"latitude": coordinates[0], "longitude": coordinates[1]})
+        else:
+            event["location_text"] = location.location_text
+        movement_events.append(event)
+    movement_events.sort(key=lambda event: datetime.fromisoformat(event["event_at"]))
+
+    warehouse_rows = db.execute(
+        select(WarehouseScan, Hub)
+        .join(Hub, WarehouseScan.hub_id == Hub.hub_id)
+        .where(WarehouseScan.shipment_id == shipment_id)
+        .order_by(WarehouseScan.scanned_at, WarehouseScan.scan_id)
+    ).all()
+    warehouse_scans = [{
+        "scan_id": scan.scan_id,
+        "scan_type": scan.scan_type,
+        "scanned_at": scan.scanned_at.isoformat(),
+        "hub_id": hub.hub_id,
+        "hub_name": hub.name,
+        "city": hub.city,
+        "state": hub.state,
+        "postal_code": hub.postal_code,
+    } for scan, hub in warehouse_rows]
+
+    data = shipment_view(db, shipment, include_private=True)
+    data["delivery_assessment"] = delivery_assessment(shipment)
+    data["latest_location"] = latest_gps_location(db, shipment_id)
+    data["movement_events"] = movement_events
+    data["warehouse_scans"] = warehouse_scans
+    return data
+
+
+@app.get("/api/shipments/tracking/{tracking_id}")
+def shipment_tracking_by_tracking_id(tracking_id: str, request: Request, db: Session = Depends(get_db)):
+    """Look up the authenticated detail view using a customer-facing tracking ID."""
+    user = required_user(request, db)
+    shipment = db.scalar(select(Shipment).where(Shipment.tracking_id == tracking_id.strip().upper()))
+    staff = staff_for(db, user)
+    customer = db.scalar(select(Customer).where(Customer.user_id == user.user_id))
+    if not shipment or (not staff and (not customer or shipment.customer_id != customer.customer_id)):
+        raise HTTPException(404, "Shipment not found")
+    return shipment_tracking_detail(shipment.shipment_id, request, db)
+
+
 @app.get("/api/track/{tracking_id}")
 def track(tracking_id: str, db: Session = Depends(get_db)):
     result = public_tracking(db, tracking_id)
@@ -1221,8 +1311,8 @@ def operations_lookups(request: Request, db: Session = Depends(get_db)):
 @app.get("/api/warehouse/scans")
 def warehouse_scans(request: Request, db: Session = Depends(get_db)):
     required_staff(request, db, {"ADMINISTRATOR", "OPERATIONS_MANAGER", "WAREHOUSE_OFFICER"})
-    rows = db.scalars(select(WarehouseScan).order_by(WarehouseScan.scanned_at.desc()).limit(100)).all()
-    return [{"scan_id": r.scan_id, "shipment_id": r.shipment_id, "hub_id": r.hub_id, "scan_type": r.scan_type, "scanned_at": r.scanned_at.isoformat()} for r in rows]
+    rows = db.execute(select(WarehouseScan, Shipment).join(Shipment, Shipment.shipment_id == WarehouseScan.shipment_id).order_by(WarehouseScan.scanned_at.desc()).limit(100)).all()
+    return [{"scan_id": scan.scan_id, "shipment_id": scan.shipment_id, "tracking_id": shipment.tracking_id, "hub_id": scan.hub_id, "scan_type": scan.scan_type, "scanned_at": scan.scanned_at.isoformat()} for scan, shipment in rows]
 
 
 @app.post("/api/warehouse/scans")
@@ -1269,7 +1359,7 @@ def finance_summary(request: Request, db: Session = Depends(get_db)):
 def finance_invoices(request: Request, db: Session = Depends(get_db)):
     required_staff(request, db, {"ADMINISTRATOR", "OPERATIONS_MANAGER", "ACCOUNTS_OFFICER"})
     rows = db.execute(select(Invoice, Shipment).join(Shipment, Invoice.shipment_id == Shipment.shipment_id).order_by(Invoice.issued_at.desc()).limit(100)).all()
-    return {"invoices": [{"invoice_no": invoice.invoice_no, "tracking_id": shipment.tracking_id, "issued_at": invoice.issued_at.isoformat(), "total": str(invoice.total), "currency": invoice.currency.strip(), "payment_mode": invoice.preferred_payment_mode or "UNSPECIFIED", "payment_status": invoice.payment_status_code, "cash_due": str(shipment.cod_amount_due)} for invoice, shipment in rows]}
+    return {"invoices": [{"invoice_no": invoice.invoice_no, "shipment_id": shipment.shipment_id, "tracking_id": shipment.tracking_id, "issued_at": invoice.issued_at.isoformat(), "total": str(invoice.total), "currency": invoice.currency.strip(), "payment_mode": invoice.preferred_payment_mode or "UNSPECIFIED", "payment_status": invoice.payment_status_code, "cash_due": str(shipment.cod_amount_due)} for invoice, shipment in rows]}
 
 
 @app.get("/api/finance/workbench")
@@ -1348,9 +1438,9 @@ def finance_workbench(
             "asset_positions": [{"position_type": row.position_type, "category": row.category, "account_name": row.account_name, "amount": str(row.amount), "balance_date": row.balance_date.isoformat(), "notes": row.notes} for row in asset_positions],
             "liability_positions": [{"position_type": row.position_type, "category": row.category, "account_name": row.account_name, "amount": str(row.amount), "balance_date": row.balance_date.isoformat(), "notes": row.notes} for row in liability_positions],
         },
-        "unpaid_invoices": [{"invoice_no": row.invoice_no, "tracking_id": shipment.tracking_id, "total": str(row.total), "currency": row.currency.strip(), "payment_mode": row.preferred_payment_mode or "UNSPECIFIED", "issued_at": row.issued_at.isoformat(), "payment_status": row.payment_status_code} for row, shipment in db.execute(select(Invoice, Shipment).join(Shipment, Shipment.shipment_id == Invoice.shipment_id).where(Invoice.payment_status_code != "PAID").order_by(Invoice.issued_at.desc()).limit(20)).all()],
-        "open_cod_settlements": [{"tracking_id": shipment.tracking_id, "amount": str(row.amount), "status": row.settlement_status_code, "collected_at": row.collected_at.isoformat(), "reference": row.settlement_reference} for row, shipment in open_cod],
-        "refund_review_queue": [{"refund_id": refund.refund_id, "tracking_id": shipment.tracking_id, "amount": str(refund.amount), "status": refund.status_code, "reason": refund.reason, "reference": refund.reference_no, "processed_at": refund.processed_at.isoformat()} for refund, _payment, _invoice, shipment in refund_review_rows],
+        "unpaid_invoices": [{"invoice_no": row.invoice_no, "shipment_id": shipment.shipment_id, "tracking_id": shipment.tracking_id, "total": str(row.total), "currency": row.currency.strip(), "payment_mode": row.preferred_payment_mode or "UNSPECIFIED", "issued_at": row.issued_at.isoformat(), "payment_status": row.payment_status_code} for row, shipment in db.execute(select(Invoice, Shipment).join(Shipment, Shipment.shipment_id == Invoice.shipment_id).where(Invoice.payment_status_code != "PAID").order_by(Invoice.issued_at.desc()).limit(20)).all()],
+        "open_cod_settlements": [{"shipment_id": shipment.shipment_id, "tracking_id": shipment.tracking_id, "amount": str(row.amount), "status": row.settlement_status_code, "collected_at": row.collected_at.isoformat(), "reference": row.settlement_reference} for row, shipment in open_cod],
+        "refund_review_queue": [{"refund_id": refund.refund_id, "shipment_id": shipment.shipment_id, "tracking_id": shipment.tracking_id, "amount": str(refund.amount), "status": refund.status_code, "reason": refund.reason, "reference": refund.reference_no, "processed_at": refund.processed_at.isoformat()} for refund, _payment, _invoice, shipment in refund_review_rows],
         "recent_transactions": [{"entry_id": row.entry_id, "entry_type": row.entry_type, "category": row.category, "description": row.description, "amount": str(row.amount), "entry_date": row.entry_date.isoformat(), "reference_no": row.reference_no} for row in recent_transactions],
         "categories": {"transactions": {key: sorted(value) for key, value in FINANCE_TRANSACTION_CATEGORIES.items()}, "positions": {key: sorted(value) for key, value in FINANCE_POSITION_CATEGORIES.items()}},
     }
