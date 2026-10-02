@@ -91,6 +91,11 @@ async def lifespan(_app: FastAPI):
         connection.execute(text("ALTER TABLE notifications ALTER COLUMN read_at DROP NOT NULL"))
         connection.execute(text("ALTER TABLE delivery_otps ALTER COLUMN verified_at DROP NOT NULL"))
         connection.execute(text("ALTER TABLE delivery_otps ALTER COLUMN consumed_at DROP NOT NULL"))
+        # A newly submitted complaint can be general (no shipment) and has
+        # neither an assigned support officer nor a resolution timestamp yet.
+        connection.execute(text("ALTER TABLE complaints ALTER COLUMN shipment_id DROP NOT NULL"))
+        connection.execute(text("ALTER TABLE complaints ALTER COLUMN handled_by_id DROP NOT NULL"))
+        connection.execute(text("ALTER TABLE complaints ALTER COLUMN resolved_at DROP NOT NULL"))
     yield
 
 
