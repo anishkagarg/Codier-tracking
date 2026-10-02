@@ -1,5 +1,5 @@
 const API = window.OPTIGO_API_BASE || "";
-const state = { account: null, view: "dashboard", pendingBooking: null, pendingAddress: null, financeSection: "overview" };
+const state = { account: null, view: "dashboard", pendingBooking: null, pendingAddress: null, financeSection: "overview", taskNotice: null };
 let customerAddresses = [];
 let startupReady = Promise.resolve();
 let shipmentDetailOpener = null;
@@ -264,12 +264,24 @@ async function tasks(){
     const active=t.status_code==="ASSIGNED"||t.status_code==="IN_PROGRESS";
     const isAssignedDeliveryAgent=state.account.role==="DELIVERY_AGENT"&&t.staff_id===state.account.staff_id;
     const canStartDelivery=isAssignedDeliveryAgent||["ADMINISTRATOR","OPERATIONS_MANAGER"].includes(state.account.role);
-    return `<article class="task-card"><div><h4>${esc(t.tracking_id||t.shipment_id)} <span class="status-badge ${statusClass(t.shipment_status)}">${esc((t.shipment_status||"").replaceAll("_"," "))}</span></h4><p>${esc(t.task_type_code)} · ${esc(t.status_code)} · due ${formatDate(t.scheduled_reference_at)}</p><p><strong>${t.task_type_code==="PICKUP"?"Pickup":"Destination"}:</strong> ${taskAddress(destination)}</p><p><strong>Contact:</strong> ${esc(destination.contact_name||"—")} · ${esc(destination.contact_phone||"—")}</p>${t.task_type_code==="DELIVERY"&&Number(t.cash_due)>0?`<p><strong>Cash to collect:</strong> ${money(t.cash_due)}</p>`:""}${t.failure_reason?`<p style="color:var(--failed)">${esc(t.failure_reason)}</p>`:""}</div><div class="task-actions">${active&&t.task_type_code==="PICKUP"?`<button class="button primary small" data-task-action="pickup" data-id="${esc(t.assignment_id)}">Complete pickup</button>`:""}${active&&t.task_type_code==="DELIVERY"?`${canStartDelivery&&t.shipment_status==="IN_TRANSIT"?`<button class="button primary small" data-task-action="start" data-id="${esc(t.assignment_id)}">Start delivery</button>`:""}${isAssignedDeliveryAgent&&t.shipment_status==="OUT_FOR_DELIVERY"?`<button class="button ghost small" data-task-action="location" data-shipment-id="${esc(t.shipment_id)}">Share GPS location</button><button class="button secondary small" data-task-action="otp" data-id="${esc(t.assignment_id)}">Request OTP</button><button class="button primary small" data-task-action="deliver" data-id="${esc(t.assignment_id)}">Verify delivery</button>`:""}${t.shipment_status==="OUT_FOR_DELIVERY"&&!isAssignedDeliveryAgent?`<span class="task-owner-note">The assigned delivery agent completes this task.</span>`:""}`:""}${active&&t.task_type_code==="WAREHOUSE"?`<button class="button primary small" data-view="warehouse">Record warehouse receipt</button>`:""}</div></article>`}).join(""):`<div class="panel empty-state"><strong>No assigned tasks</strong><span>New work will appear here when the preceding department completes its step.</span></div>`}</div>`;
+    return `<article class="task-card"><div><h4>${esc(t.tracking_id||t.shipment_id)} <span class="status-badge ${statusClass(t.shipment_status)}">${esc((t.shipment_status||"").replaceAll("_"," "))}</span></h4><p>${esc(t.task_type_code)} · ${esc(t.status_code)} · due ${formatDate(t.scheduled_reference_at)}</p><p><strong>${t.task_type_code==="PICKUP"?"Pickup":"Destination"}:</strong> ${taskAddress(destination)}</p><p><strong>Contact:</strong> ${esc(destination.contact_name||"—")} · ${esc(destination.contact_phone||"—")}</p>${t.task_type_code==="DELIVERY"&&Number(t.cash_due)>0?`<p><strong>Cash to collect:</strong> ${money(t.cash_due)}</p>`:""}${t.failure_reason?`<p style="color:var(--failed)">${esc(t.failure_reason)}</p>`:""}</div><div class="task-actions">${active&&t.task_type_code==="PICKUP"?`<button class="button primary small" data-task-action="pickup" data-id="${esc(t.assignment_id)}">Complete pickup</button>`:""}${active&&t.task_type_code==="DELIVERY"?`${canStartDelivery&&t.shipment_status==="IN_TRANSIT"?`<button class="button primary small" data-task-action="start" data-id="${esc(t.assignment_id)}">Start delivery</button>`:""}${isAssignedDeliveryAgent&&t.shipment_status==="OUT_FOR_DELIVERY"?`<button class="button ghost small" data-task-action="location" data-id="${esc(t.assignment_id)}" data-shipment-id="${esc(t.shipment_id)}">Share GPS location</button><button class="button secondary small" data-task-action="otp" data-id="${esc(t.assignment_id)}">Request OTP</button><button class="button primary small" data-task-action="deliver" data-id="${esc(t.assignment_id)}">Verify delivery</button>`:""}${t.shipment_status==="OUT_FOR_DELIVERY"&&!isAssignedDeliveryAgent?`<span class="task-owner-note">The assigned delivery agent completes this task.</span>`:""}`:""}${active&&t.task_type_code==="WAREHOUSE"?`<button class="button primary small" data-view="warehouse">Record warehouse receipt</button>`:""}</div></article>`}).join(""):`<div class="panel empty-state"><strong>No assigned tasks</strong><span>New work will appear here when the preceding department completes its step.</span></div>`}</div>`;
   Array.from(document.querySelectorAll(".task-card h4")).forEach((heading,index)=>{const task=open[index];if(!task?.shipment_id)return;const link=document.createElement("button");link.type="button";link.className="tracking-link link-button";link.dataset.shipmentDetail=task.shipment_id;link.setAttribute("aria-label",`View shipment journey for ${task.tracking_id}`);link.textContent=task.tracking_id||task.shipment_id;heading.firstChild?.remove();heading.insertBefore(link,heading.firstChild);heading.insertBefore(document.createTextNode(" "),link.nextSibling)});
+  if(state.taskNotice){
+    const notice=state.taskNotice;
+    state.taskNotice=null;
+    $("#view .section-heading")?.insertAdjacentHTML("afterend",`<div class="task-page-feedback" role="status">${esc(notice)}</div>`);
+  }
   for(const t of open.filter(item=>item.task_type_code==="DELIVERY"&&Number(item.cash_due)>0)){
     const button=[...document.querySelectorAll('[data-task-action="deliver"]')].find(node=>node.dataset.id===t.assignment_id);
     if(button)button.insertAdjacentHTML("beforebegin",`<label class="cash-confirm"><input type="checkbox" data-cash-confirm="${esc(t.assignment_id)}"> I collected ${money(t.cash_due)} in cash</label>`);
   }
+  open.forEach((t,index)=>{
+    const actions=document.querySelectorAll(".task-card")[index]?.querySelector(".task-actions");
+    if(!actions||!t.assignment_id)return;
+    const verify=actions.querySelector('[data-task-action="deliver"]');
+    if(verify)verify.insertAdjacentHTML("afterend",`<div class="delivery-otp-entry hidden" data-delivery-otp-entry="${esc(t.assignment_id)}"><label for="delivery-otp-${esc(t.assignment_id)}">Delivery OTP</label><div><input id="delivery-otp-${esc(t.assignment_id)}" data-delivery-otp-input="${esc(t.assignment_id)}" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" placeholder="Enter 6-digit OTP"><button class="button primary small" type="button" data-task-action="deliver-confirm" data-id="${esc(t.assignment_id)}">Confirm delivery</button></div></div>`);
+    actions.insertAdjacentHTML("beforeend",`<div class="task-feedback" data-task-feedback="${esc(t.assignment_id)}" role="status" aria-live="polite"></div>`);
+  });
 }
 async function pickupWorkHistory(){
   setTitle("Working history");
@@ -425,32 +437,78 @@ async function payments(){
   if($("#payment-form"))$("#payment-form").onsubmit=(e)=>{e.preventDefault();completeDemoPayment(new FormData(e.currentTarget).get("shipment_id"),$("#payment-result"))};
 }
 async function navigate(view){if(!state.account||!(ROLE_VIEWS[state.account.role]||[]).includes(view))return;state.view=view;document.querySelector("#sidebar").classList.remove("open");$("#view").innerHTML='<div class="panel empty-state">Loading workspace…</div>';try{if(view==="dashboard")await dashboard();else if(view==="shipments")await shipments();else if(view==="booking")booking();else if(view==="tracking")tracking();else if(view==="addressbook")await addressbook();else if(view==="notifications")await notifications();else if(view==="complaints")await complaints();else if(view==="tasks")await tasks();else if(view==="work-history")await pickupWorkHistory();else if(view==="operations")await operations();else if(view==="route-planner")await routePlanner();else if(view==="payments")await payments();else if(view==="reports")await reports();else if(view==="warehouse")await warehouse();else if(view==="finance")await finance();else if(view==="staff")await staffAdmin()}catch(err){toast(err.message,true);$("#view").innerHTML=`<div class="panel empty-state"><strong>Unable to load this view</strong><span>${esc(err.message)}</span></div>`}}
+function setTaskFeedback(assignmentId,message,isError=false){
+  const feedback=[...document.querySelectorAll("[data-task-feedback]")].find(node=>node.dataset.taskFeedback===assignmentId);
+  if(feedback)feedback.innerHTML=`<span class="${isError?"is-error":"is-success"}">${esc(message)}</span>`;
+}
+function setTaskButtonBusy(button,busy,label){
+  if(!button)return;
+  button.disabled=busy;
+  if(label)button.textContent=label;
+}
 async function handleTaskAction(task){
   const action=task.dataset.taskAction,id=task.dataset.id;
   try{
     if(action==="location"){
       if(!navigator.geolocation)throw new Error("This browser does not provide GPS access");
-      navigator.geolocation.getCurrentPosition(async position=>{try{await api(`/api/shipments/${task.dataset.shipmentId}/locations`,{method:"POST",body:JSON.stringify({latitude:position.coords.latitude,longitude:position.coords.longitude,scan_type:"GPS",location_text:"GPS update"})});toast("GPS location shared")}catch(err){toast(err.message,true)}},()=>toast("GPS permission was not granted",true),{enableHighAccuracy:true,timeout:10000});
+      setTaskButtonBusy(task,true,"Sharing location…");
+      setTaskFeedback(id,"Getting your current location…");
+      navigator.geolocation.getCurrentPosition(async position=>{
+        try{
+          await api(`/api/shipments/${task.dataset.shipmentId}/locations`,{method:"POST",body:JSON.stringify({latitude:position.coords.latitude,longitude:position.coords.longitude,scan_type:"GPS",location_text:"GPS update"})});
+          setTaskFeedback(id,"Okay, location shared.");
+        }catch(err){setTaskFeedback(id,err.message,true)}
+        finally{setTaskButtonBusy(task,false,"Share GPS location")}
+      },()=>{setTaskFeedback(id,"GPS permission was not granted. Allow location access and try again.",true);setTaskButtonBusy(task,false,"Share GPS location")},{enableHighAccuracy:true,timeout:10000});
       return;
     }
-    if(action==="start")await api(`/api/assignments/${id}/start-delivery`,{method:"POST"});
-    else if(action==="pickup")await api(`/api/assignments/${id}/pickup-complete`,{method:"POST"});
-    else if(action==="otp"){
+    if(action==="start"){
+      await api(`/api/assignments/${id}/start-delivery`,{method:"POST"});
+      state.taskNotice="Delivery started. You can now share location, request the customer OTP, and complete delivery.";
+      navigate("tasks");
+      return;
+    }
+    if(action==="pickup"){
+      await api(`/api/assignments/${id}/pickup-complete`,{method:"POST"});
+      state.taskNotice="Pickup completed and recorded.";
+      navigate("tasks");
+      return;
+    }
+    if(action==="otp"){
+      setTaskButtonBusy(task,true,"Requesting OTP…");
+      setTaskFeedback(id,"Requesting a delivery OTP for the customer…");
       await api(`/api/assignments/${id}/otp`,{method:"POST"});
-      toast("OK, OTP requested.");
+      setTaskFeedback(id,"OTP requested. The customer can now find it in Notifications.");
+      setTaskButtonBusy(task,false,"Request new OTP");
       return;
     }
-    else if(action==="deliver"){
+    if(action==="deliver"){
+      const entry=[...document.querySelectorAll("[data-delivery-otp-entry]")].find(node=>node.dataset.deliveryOtpEntry===id);
+      if(!entry)return;
+      entry.classList.remove("hidden");
+      const input=entry.querySelector("[data-delivery-otp-input]");
+      input?.focus();
+      setTaskFeedback(id,"Enter the 6-digit OTP from the customer's Notifications, then confirm delivery.");
+      return;
+    }
+    if(action==="deliver-confirm"){
       const cashBox=[...document.querySelectorAll("[data-cash-confirm]")].find(node=>node.dataset.cashConfirm===id);
       if(cashBox&&!cashBox.checked)throw new Error("Confirm cash collection before completing delivery");
-      const code=prompt("Enter the code from the customer's Notifications");
-      if(!code)return;
+      const input=[...document.querySelectorAll("[data-delivery-otp-input]")].find(node=>node.dataset.deliveryOtpInput===id);
+      const code=input?.value.trim()||"";
+      if(!/^\d{6}$/.test(code))throw new Error("Enter the 6-digit OTP from the customer's Notifications");
+      setTaskButtonBusy(task,true,"Verifying…");
+      setTaskFeedback(id,"Verifying delivery OTP…");
       await api(`/api/assignments/${id}/deliver`,{method:"POST",body:JSON.stringify({code,remarks:"OTP verified",cash_collected:Boolean(cashBox?.checked)})});
+      state.taskNotice="Delivery verified — delivery completed.";
+      navigate("tasks");
+      return;
     }
-    else return;
-    toast(action==="deliver"?"Delivery verified — delivery completed.":"Task updated");
-    navigate("tasks");
-  }catch(err){toast(err.message,true)}
+  }catch(err){
+    setTaskFeedback(id,err.message,true);
+    if(action==="otp")setTaskButtonBusy(task,false,"Request OTP");
+    if(action==="deliver-confirm")setTaskButtonBusy(task,false,"Confirm delivery");
+  }
 }
 document.addEventListener("click",(e)=>{
   const staffReset=e.target.closest("[data-staff-password-reset]");

@@ -486,3 +486,7 @@ button.link-button:hover{color:var(--primary-hover)}
 .warehouse-scan-sections>.panel{margin:0}
 @media(max-width:980px){.warehouse-scan-sections{grid-template-columns:1fr}.warehouse-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:560px){.shipment-detail-shell{padding:18px 14px}.shipment-detail-header{gap:10px}.shipment-route-card,.shipment-warehouse-scans{padding:14px}.shipment-route-stop{min-width:132px}.shipment-detail-header h2{font-size:21px}}
+
+/* Delivery confirmations stay with the control that caused them. */
+.task-feedback{flex-basis:100%;min-height:18px;font-size:12px;font-weight:700;text-align:right}.task-feedback .is-success{color:#2f7140}.task-feedback .is-error{color:var(--failed)}.task-page-feedback{margin:-7px 0 20px;padding:12px 14px;border:1px solid #bcdcc5;border-radius:10px;background:#f0f8f2;color:#2f7140;font-size:13px;font-weight:700}.delivery-otp-entry{flex-basis:100%;display:grid;gap:6px;margin-top:2px}.delivery-otp-entry label{font-size:12px;font-weight:800;color:var(--text)}.delivery-otp-entry>div{display:flex;gap:7px;justify-content:flex-end}.delivery-otp-entry input{width:132px;min-height:36px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font:inherit;font-size:13px;letter-spacing:.08em}.delivery-otp-entry input:focus{outline:3px solid rgba(17,92,125,.2);border-color:var(--primary)}
+@media(max-width:720px){.task-feedback{text-align:left}.delivery-otp-entry>div{justify-content:flex-start;flex-wrap:wrap}}
