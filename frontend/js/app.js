@@ -446,9 +446,20 @@ function setTaskButtonBusy(button,busy,label){
   button.disabled=busy;
   if(label)button.textContent=label;
 }
+async function deliverySessionIsCurrent(){
+  const session=await api("/api/auth/me");
+  if(!session.authenticated||!session.account)throw new Error("Your OptiGo session has ended. Please sign in again.");
+  if(session.account.user_id===state.account?.user_id)return true;
+  // A customer and an agent share the same browser session. Do not let an
+  // older tab submit an action as whichever account most recently signed in.
+  state.account=session.account;
+  showShell();
+  return false;
+}
 async function handleTaskAction(task){
   const action=task.dataset.taskAction,id=task.dataset.id;
   try{
+    if(["location","otp","deliver","deliver-confirm"].includes(action)&&!(await deliverySessionIsCurrent()))return;
     if(action==="location"){
       if(!navigator.geolocation)throw new Error("This browser does not provide GPS access");
       setTaskButtonBusy(task,true,"Sharing location…");
