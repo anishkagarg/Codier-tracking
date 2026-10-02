@@ -109,10 +109,10 @@
       </div>
       <div class="auth-form-wrap">
         <h2 id="auth-title">Sign in to OptiGo</h2>
-        <p class="muted" id="auth-subtitle">Use your user ID or email and password.</p>
+        <p class="muted" id="auth-subtitle">Use your email address and password.</p>
         <div id="auth-error" class="auth-error" role="alert" aria-live="assertive"></div>
         <form id="login-form" class="stack-form">
-          <label>User ID or email<input name="email" type="text" autocomplete="username" required placeholder="Enter user ID or email"></label>
+          <label>Email address<input name="email" type="text" autocomplete="username" required placeholder="you@example.com"></label>
           <label>Password<input name="password" type="password" autocomplete="current-password" required minlength="8" placeholder="Enter your password"></label>
           <button class="button primary wide" type="submit">Sign in <span>→</span></button>
           <button class="auth-forgot-link" type="button" data-auth-mode="forgot">Forgot password?</button>
@@ -125,12 +125,12 @@
           <button class="button primary wide" type="submit">Create account <span>→</span></button>
         </form>
         <form id="forgot-request-form" class="stack-form hidden">
-          <label>OptiGo user ID<input name="user_id" autocomplete="username" required minlength="5" maxlength="12" placeholder="OBUUSR123456"></label>
+          <label>Email address<input name="email" type="email" autocomplete="email" required placeholder="you@example.com"></label>
           <button class="button primary wide" type="submit">Send reset code <span>→</span></button>
           <button class="auth-forgot-link" type="button" data-auth-mode="login">Back to sign in</button>
         </form>
         <form id="forgot-confirm-form" class="stack-form hidden">
-          <label>OptiGo user ID<input name="user_id" autocomplete="username" required minlength="5" maxlength="12" placeholder="OBUUSR123456"></label>
+          <label>Email address<input name="email" type="email" autocomplete="email" required placeholder="you@example.com"></label>
           <label>6-digit email code<input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required placeholder="Enter the code we emailed you"></label>
           <label>New password<input name="new_password" type="password" autocomplete="new-password" minlength="8" required placeholder="At least 8 characters"></label>
           <button class="button primary wide" type="submit">Update password <span>→</span></button>

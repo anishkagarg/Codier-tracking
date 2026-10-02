@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
@@ -35,7 +35,7 @@ def test_imported_bcrypt_hashes_verify_with_the_declared_runtime_dependency():
     assert not verify_password("not-the-password", encoded)
 
 
-def test_bcrypt_login_creates_session_and_rejects_wrong_password():
+def test_customer_login_creates_session_without_exposing_internal_ids_and_rejects_wrong_password():
     import bcrypt
     from fastapi import HTTPException
 
@@ -50,7 +50,9 @@ def test_bcrypt_login_creates_session_and_rejects_wrong_password():
 
     result = login(AuthIn(email="TEST@example.test", password="TemporarySessionTest123!"), request, db)
 
-    assert result["account"]["user_id"] == user.user_id
+    assert result["account"]["email"] == user.email
+    assert "user_id" not in result["account"]
+    assert "customer_id" not in result["account"]
     assert request.session["user_id"] == user.user_id
     assert "password_hash" not in result["account"]
 
@@ -63,7 +65,7 @@ def test_bcrypt_login_creates_session_and_rejects_wrong_password():
     assert not wrong_request.session
 
 
-def test_login_accepts_optigo_user_id_and_creates_session():
+def test_customer_login_rejects_optigo_user_id():
     user = SimpleNamespace(
         user_id="OBUUSR123456", name="Test Customer", email="test@example.test",
         phone="9000000000", password_hash=hash_password("CustomerPassword123!"), active=True,
@@ -72,13 +74,31 @@ def test_login_accepts_optigo_user_id_and_creates_session():
     db = Mock()
     db.scalar.side_effect = [user, None, None]
 
-    result = login(AuthIn(email="obuusr123456", password="CustomerPassword123!"), request, db)
+    with pytest.raises(HTTPException) as failed:
+        login(AuthIn(email="obuusr123456", password="CustomerPassword123!"), request, db)
+    assert failed.value.status_code == 401
+    assert not request.session
+
+
+def test_staff_login_accepts_optigo_user_id_and_keeps_staff_identifier_available():
+    user = SimpleNamespace(
+        user_id="OBUUSR654321", name="Test Courier", email="courier@example.test",
+        phone="9000000000", password_hash=hash_password("CourierPassword123!"), active=True,
+    )
+    staff = SimpleNamespace(staff_id="OBUSTF654321", role_code="DELIVERY_AGENT", department_code="DELIVERY")
+    request = Request({"type": "http", "session": {}, "headers": []})
+    db = Mock()
+    # User lookup, staff authorization for the user-ID sign-in, then account view.
+    db.scalar.side_effect = [user, staff, None, staff]
+
+    result = login(AuthIn(email="obuusr654321", password="CourierPassword123!"), request, db)
 
     assert result["account"]["user_id"] == user.user_id
+    assert result["account"]["staff_id"] == staff.staff_id
     assert request.session["user_id"] == user.user_id
 
 
-def test_registration_persists_customer_and_generated_id_can_sign_in():
+def test_registration_persists_internal_customer_id_but_customer_uses_email_to_sign_in():
     from app import main
 
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
@@ -99,16 +119,18 @@ def test_registration_persists_customer_and_generated_id_can_sign_in():
         response = client.post("/api/auth/register", json=payload)
         assert response.status_code == 201, response.text
         created = response.json()
-        user_id = created["account"]["user_id"]
         assert created["account_created"] is True
-        assert user_id.startswith("OBUUSR")
+        assert created["account"]["email"] == payload["email"]
+        assert "user_id" not in created["account"]
         with Session(engine) as db:
-            assert db.get(User, user_id) is not None
-            assert db.query(Customer).filter_by(user_id=user_id).one()
+            user = db.query(User).filter_by(email=payload["email"]).one()
+            assert user.user_id.startswith("OBUUSR")
+            assert db.query(Customer).filter_by(user_id=user.user_id).one()
 
-        signed_in = client.post("/api/auth/login", json={"email": user_id, "password": payload["password"]})
+        signed_in = client.post("/api/auth/login", json={"email": payload["email"], "password": payload["password"]})
         assert signed_in.status_code == 200, signed_in.text
-        assert signed_in.json()["account"]["user_id"] == user_id
+        assert signed_in.json()["account"]["email"] == payload["email"]
+        assert "user_id" not in signed_in.json()["account"]
         assert "session" in signed_in.headers.get("set-cookie", "")
     engine.dispose()
 
@@ -144,7 +166,7 @@ def test_customer_address_book_uses_authenticated_customer_api():
         })
         assert registered.status_code == 201, registered.text
         login_response = client.post("/api/auth/login", json={
-            "email": registered.json()["account"]["user_id"], "password": "AddressBookPassword123!",
+            "email": "addressbook@example.test", "password": "AddressBookPassword123!",
         })
         assert login_response.status_code == 200, login_response.text
         created = client.post("/api/addresses", json=address_payload)
@@ -221,15 +243,16 @@ def test_password_reset_request_emails_hashed_one_time_code(monkeypatch):
 
     monkeypatch.setenv("EMAIL_TRANSPORT", "smtp")
     monkeypatch.setenv("SMTP_HOST", "smtp.example.test")
-    user = SimpleNamespace(user_id="OBUUSR123456", active=True)
+    user = SimpleNamespace(user_id="OBUUSR123456", email="reset@example.test", active=True)
     db = Mock()
-    db.get.side_effect = [user, None]
+    db.scalar.side_effect = [user]
+    db.get.side_effect = [None]
     monkeypatch.setattr(main, "send_password_reset_email", lambda target, code: True)
 
-    result = request_password_reset(PasswordResetRequestIn(user_id="obuusr123456"), db)
+    result = request_password_reset(PasswordResetRequestIn(email="reset@example.test"), db)
 
     recovery = db.add.call_args.args[0]
-    assert result["message"].startswith("If that user ID is active")
+    assert result["message"].startswith("If that email address is active")
     assert recovery.user_id == user.user_id
     assert recovery.code_hash != ""
     assert len(recovery.code_hash) > 20
@@ -239,7 +262,7 @@ def test_password_reset_request_emails_hashed_one_time_code(monkeypatch):
 
 def test_password_reset_rejects_invalid_code_then_accepts_valid_code():
     user = SimpleNamespace(
-        user_id="OBUUSR123456", active=True, password_hash=hash_password("OldPassword123!"),
+        user_id="OBUUSR123456", email="reset@example.test", active=True, password_hash=hash_password("OldPassword123!"),
         updated_at=datetime.now(timezone.utc),
     )
     recovery = PasswordResetOTP(
@@ -248,15 +271,16 @@ def test_password_reset_rejects_invalid_code_then_accepts_valid_code():
         attempt_count=0, created_at=datetime.now(timezone.utc),
     )
     db = Mock()
-    db.get.side_effect = [user, recovery, user, recovery]
+    db.scalar.side_effect = [user, user]
+    db.get.side_effect = [recovery, recovery]
 
     with pytest.raises(Exception) as failed:
-        confirm_password_reset(PasswordResetIn(user_id=user.user_id, code="654321", new_password="NewPassword123!"), db)
+        confirm_password_reset(PasswordResetIn(email=user.email, code="654321", new_password="NewPassword123!"), db)
     assert getattr(failed.value, "status_code", None) == 400
     assert recovery.attempt_count == 1
     db.commit.assert_called_once()
 
-    result = confirm_password_reset(PasswordResetIn(user_id=user.user_id, code="123456", new_password="NewPassword123!"), db)
+    result = confirm_password_reset(PasswordResetIn(email=user.email, code="123456", new_password="NewPassword123!"), db)
     assert result["password_reset"] is True
     assert verify_password("NewPassword123!", user.password_hash)
     db.delete.assert_called_once_with(recovery)

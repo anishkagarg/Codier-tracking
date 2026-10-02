@@ -29,7 +29,7 @@ function formatDateTime(value){return value?new Date(value).toLocaleString("en-I
 function renderAuth(mode="login"){
   const forms={login:"#login-form",register:"#register-form",forgot:"#forgot-request-form",reset:"#forgot-confirm-form"};
   Object.entries(forms).forEach(([name,selector])=>$(selector).classList.toggle("hidden",name!==mode));
-  const titles={login:["Sign in to OptiGo","Use your user ID or email and password."],register:["Create your OptiGo account","Set up your account to book and follow shipments."],forgot:["Reset your password","Enter your OptiGo user ID. We’ll email a one-time reset code to the address on your account."],reset:["Choose a new password","Enter the six-digit code from your email and create a new password."]};
+  const titles={login:["Sign in to OptiGo","Use your email address and password."],register:["Create your OptiGo account","Set up your account to book and follow shipments."],forgot:["Reset your password","Enter your email address. We’ll send a one-time reset code if an account is active."],reset:["Choose a new password","Enter the six-digit code from your email and create a new password."]};
   $("#auth-title").textContent=titles[mode][0];
   $("#auth-subtitle").textContent=titles[mode][1];
   $("#auth-error").textContent="";
@@ -438,7 +438,7 @@ function setTaskButtonBusy(button,busy,label){
 async function deliverySessionIsCurrent(){
   const session=await api("/api/auth/me");
   if(!session.authenticated||!session.account)throw new Error("Your OptiGo session has ended. Please sign in again.");
-  if(session.account.user_id===state.account?.user_id)return true;
+  if((session.account.staff_id||session.account.email)===(state.account?.staff_id||state.account?.email))return true;
   // A customer and an agent share the same browser session. Do not let an
   // older tab submit an action as whichever account most recently signed in.
   state.account=session.account;
@@ -575,7 +575,7 @@ document.addEventListener("submit",async(e)=>{
       const payload=Object.fromEntries(fields);
       result=await api("/api/auth/password-reset/request",{method:"POST",body:JSON.stringify(payload)});
       renderAuth("reset");
-      $("#forgot-confirm-form [name=user_id]").value=payload.user_id.trim().toUpperCase();
+      $("#forgot-confirm-form [name=email]").value=payload.email.trim().toLowerCase();
       showAuthMessage(result.message,true);
       return;
     }
@@ -583,7 +583,7 @@ document.addEventListener("submit",async(e)=>{
       const payload=Object.fromEntries(fields);
       result=await api("/api/auth/password-reset/confirm",{method:"POST",body:JSON.stringify(payload)});
       renderAuth("login");
-      $("#login-form [name=email]").value=payload.user_id.trim().toUpperCase();
+      $("#login-form [name=email]").value=payload.email.trim().toLowerCase();
       showAuthMessage(result.message,true);
       $("#login-form [name=password]").focus();
       return;
@@ -594,7 +594,7 @@ document.addEventListener("submit",async(e)=>{
       const email=fields.get("email");
       renderAuth("login");
       $("#login-form [name=email]").value=email;
-      showAuthMessage(`Account created. Your OptiGo user ID is ${result.account.user_id}. Please sign in to continue.`,true);
+      showAuthMessage("Account created. Sign in with your email address and password to continue.",true);
       $("#login-form [name=password]").focus();
       return;
     }

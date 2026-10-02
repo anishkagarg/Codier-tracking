@@ -103,7 +103,7 @@ class AuthIn(BaseModel):
 
 
 class PasswordResetRequestIn(BaseModel):
-    user_id: str = Field(min_length=5, max_length=12)
+    email: str = Field(min_length=5, max_length=254)
 
 
 class PasswordResetIn(PasswordResetRequestIn):
@@ -355,7 +355,12 @@ def required_staff(request: Request, db: Session, roles: set[str] | None = None)
 def account_view(db: Session, user: User) -> dict:
     customer = db.scalar(select(Customer).where(Customer.user_id == user.user_id))
     staff = staff_for(db, user)
-    return {"user_id": user.user_id, "name": user.name, "email": user.email, "phone": user.phone, "role": staff.role_code if staff else "CUSTOMER", "department": staff.department_code if staff else None, "customer_id": customer.customer_id if customer else None, "staff_id": staff.staff_id if staff else None}
+    # Customer account IDs are operational references, not customer-facing
+    # credentials. Keep them in the database and staff workflows, but never
+    # send them to the customer browser.
+    if not staff:
+        return {"name": user.name, "email": user.email, "phone": user.phone, "role": "CUSTOMER", "department": None, "staff_id": None}
+    return {"user_id": user.user_id, "name": user.name, "email": user.email, "phone": user.phone, "role": staff.role_code, "department": staff.department_code, "staff_id": staff.staff_id}
 
 
 def address_view(db: Session, address_id: str) -> dict:
@@ -449,7 +454,11 @@ def login(payload: AuthIn, request: Request, db: Session = Depends(get_db)):
     identifier = str(payload.email).strip()
     user = db.scalar(select(User).where((User.email == identifier.lower()) | (User.user_id == identifier.upper())))
     if not user or not user.active or not verify_password(payload.password, user.password_hash):
-        raise HTTPException(401, "Invalid user ID or email, or password")
+        raise HTTPException(401, "Invalid email or password")
+    # Staff retain their internal OptiGo user-ID login. Customer IDs are never
+    # a customer login credential: customers must sign in with their email.
+    if "@" not in identifier and not staff_for(db, user):
+        raise HTTPException(401, "Customers must sign in with their email address")
     request.session.clear()
     request.session["user_id"] = user.user_id
     return {"account": account_view(db, user)}
@@ -459,8 +468,8 @@ def login(payload: AuthIn, request: Request, db: Session = Depends(get_db)):
 def request_password_reset(payload: PasswordResetRequestIn, db: Session = Depends(get_db)):
     if os.getenv("EMAIL_TRANSPORT", "in_app").lower() != "smtp" or not os.getenv("SMTP_HOST"):
         raise HTTPException(503, "Password reset email is not configured. Contact OptiGo support.")
-    user_id = payload.user_id.strip().upper()
-    user = db.get(User, user_id)
+    email = payload.email.strip().lower()
+    user = db.scalar(select(User).where(func.lower(User.email) == email))
     if user and user.active:
         now = datetime.now(timezone.utc)
         existing = db.get(PasswordResetOTP, user.user_id)
@@ -480,7 +489,7 @@ def request_password_reset(payload: PasswordResetRequestIn, db: Session = Depend
         recovery.created_at = now
         db.add(recovery)
         db.commit()
-    return {"message": "If that user ID is active, a reset code has been sent to the registered email address."}
+    return {"message": "If that email address is active, a reset code has been sent."}
 
 
 @app.post("/api/admin/recovery")
@@ -545,9 +554,9 @@ def recover_admin_access(payload: AdminRecoveryIn, db: Session = Depends(get_db)
 
 @app.post("/api/auth/password-reset/confirm")
 def confirm_password_reset(payload: PasswordResetIn, db: Session = Depends(get_db)):
-    user_id = payload.user_id.strip().upper()
-    user = db.get(User, user_id)
-    recovery = db.get(PasswordResetOTP, user_id)
+    email = payload.email.strip().lower()
+    user = db.scalar(select(User).where(func.lower(User.email) == email))
+    recovery = db.get(PasswordResetOTP, user.user_id) if user else None
     now = datetime.now(timezone.utc)
     if not user or not user.active or not recovery:
         raise HTTPException(400, "The reset code is invalid or expired. Request a new code and try again.")
