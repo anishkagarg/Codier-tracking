@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from starlette.requests import Request
 
 from app.db import engine
-from app.main import AddressIn, BookingIn, DeliveryIn, FinancePositionIn, FinanceTransactionIn, StaffAccountIn, WarehouseScanIn, admin_staff, book_shipment, create_finance_transaction, create_otp, create_staff_account, create_warehouse_scan, deliver, finance_summary, finance_workbench, operations_lookups, pickup_complete, record_finance_position, start_delivery, warehouse_scans
+from app.main import AddressIn, BookingIn, DeliveryIn, FinancePositionIn, FinanceTransactionIn, StaffAccountIn, WarehouseScanIn, admin_staff, book_shipment, create_finance_transaction, create_otp, create_staff_account, create_warehouse_scan, deliver, finance_summary, finance_workbench, operations_lookups, pickup_complete, record_finance_position, start_delivery, tasks, warehouse_scans
 from app.models import Customer, FinancePosition, FinanceTransaction, Hub, Invoice, Notification, Payment, PricingRule, Shipment, ShipmentAssignment, Staff, User
 
 
@@ -63,6 +63,9 @@ def test_booking_passes_once_through_pickup_warehouse_and_delivery():
             pickup_complete(pickup.assignment_id, request_for(pickup_user), db)
             db.refresh(shipment)
             assert shipment.current_status == "PICKED_UP"
+            pickup_work = next(item for item in tasks(request_for(pickup_user), db)["tasks"] if item["assignment_id"] == pickup.assignment_id)
+            assert pickup_work["status_code"] == "COMPLETED"
+            assert pickup_work["completed_at"] is not None
             warehouse = db.scalar(select(ShipmentAssignment).where(ShipmentAssignment.shipment_id == shipment.shipment_id, ShipmentAssignment.task_type_code == "WAREHOUSE"))
             assert warehouse is not None
             assert db.get(Staff, warehouse.staff_id).role_code == "WAREHOUSE_OFFICER"

@@ -1214,7 +1214,7 @@ def tasks(request: Request, db: Session = Depends(get_db)):
     result = []
     for a in db.scalars(stmt).all():
         s = db.get(Shipment, a.shipment_id)
-        result.append({"assignment_id": a.assignment_id, "shipment_id": a.shipment_id, "tracking_id": s.tracking_id if s else None, "task_type_code": a.task_type_code, "status_code": a.status_code, "shipment_status": s.current_status if s else None, "staff_id": a.staff_id, "assigned_at": a.assigned_at.isoformat(), "scheduled_reference_at": a.completed_at.isoformat(), "failure_reason": a.failure_reason if a.status_code == "FAILED" else None, "sender": address_view(db, s.sender_address_id) if s else {}, "receiver": address_view(db, s.receiver_address_id) if s else {}, "cash_due": str(s.cod_amount_due) if s else "0"})
+        result.append({"assignment_id": a.assignment_id, "shipment_id": a.shipment_id, "tracking_id": s.tracking_id if s else None, "task_type_code": a.task_type_code, "status_code": a.status_code, "shipment_status": s.current_status if s else None, "staff_id": a.staff_id, "assigned_at": a.assigned_at.isoformat(), "scheduled_reference_at": a.completed_at.isoformat(), "completed_at": a.completed_at.isoformat() if a.status_code in {"COMPLETED", "FAILED"} else None, "failure_reason": a.failure_reason if a.status_code == "FAILED" else None, "sender": address_view(db, s.sender_address_id) if s else {}, "receiver": address_view(db, s.receiver_address_id) if s else {}, "cash_due": str(s.cod_amount_due) if s else "0"})
     return {"account": account_view(db, user), "tasks": result}
 
 
