@@ -447,6 +447,7 @@ body:has(#auth-shell:not(.hidden)) #landing-shell{filter:blur(3px);pointer-event
 .shipment-route-stop span{color:#665d4d;font-size:11px}
 .shipment-route-arrow{align-self:center;color:#A76B14;font-size:18px}
 .shipment-detail-summary{display:flex;align-items:center;flex-wrap:wrap;gap:8px 14px;margin-top:15px;color:#665d4d;font-size:12px}
+.shipment-current-stage,.shipment-current-location{margin:18px 0;padding:18px;border:1px solid #EBDDC5;border-radius:10px;background:#FFFCF6}.shipment-current-stage h3,.shipment-current-location h3{margin:0 0 8px;font-size:15px}.shipment-current-stage>div{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.shipment-current-stage p,.shipment-current-location p{margin:0;color:#665d4d;font-size:13px}.shipment-current-location{display:grid;gap:5px;background:#F1FAF2;border-color:#B9DFC0}.shipment-current-location strong{font-size:15px;color:#27643A}.shipment-current-location .shipment-movement-map{width:max-content;margin-top:3px}
 .shipment-warehouse-scans{margin:18px 0;padding:18px;border:1px solid var(--border);border-radius:10px;background:#fff}
 .shipment-warehouse-scans ol{display:grid;gap:9px;margin:12px 0 0;padding-left:21px}
 .shipment-warehouse-scans li{padding-left:4px;font-size:12px}
