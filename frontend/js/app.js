@@ -4,7 +4,7 @@ let customerAddresses = [];
 let startupReady = Promise.resolve();
 let shipmentDetailOpener = null;
 const ROLE_VIEWS = {
-  CUSTOMER: ["booking", "tracking", "notifications", "addressbook", "shipments"],
+  CUSTOMER: ["booking", "tracking", "notifications", "addressbook", "shipments", "complaints"],
   ADMINISTRATOR: ["dashboard", "shipments", "operations", "tasks", "warehouse", "finance", "staff", "complaints", "tracking", "reports", "route-planner"],
   OPERATIONS_MANAGER: ["dashboard", "shipments", "operations", "tasks", "warehouse", "finance", "complaints", "tracking", "reports", "route-planner"],
   ACCOUNTS_OFFICER: ["finance", "reports"],
