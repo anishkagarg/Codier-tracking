@@ -66,6 +66,7 @@ function showShell(){
   $("#auth-shell").classList.add("hidden");
   $("#app-shell").classList.remove("hidden");
   $("#app-shell").classList.toggle("customer-workspace",a.role==="CUSTOMER");
+  $("#sidebar").dataset.role=a.role;
   $("#account-name").textContent=a.name;
   $("#account-role").textContent=a.role.replaceAll("_"," ");
   $("#avatar").textContent=(a.name||"S").slice(0,1).toUpperCase();

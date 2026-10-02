@@ -126,6 +126,7 @@ body:has(#app-shell:not(.hidden)) .nav-label{color:#C8D6E5}
 body:has(#app-shell:not(.hidden)) .nav-item{color:#E7EEF5}
 body:has(#app-shell:not(.hidden)) .nav-item:hover{background:#172E4B;color:#FFFFFF}
 body:has(#app-shell:not(.hidden)) .nav-item.active{background:#DD9529;color:#0C1E36}
+body:has(#app-shell:not(.hidden)) #sidebar[data-role="TRACKING_OFFICER"] [data-view="tracking"]{display:none!important}
 body:has(#app-shell:not(.hidden)) .sidebar-account-actions{border-top-color:#263D58}
 body:has(#app-shell:not(.hidden)) .sidebar-account-actions .button.ghost{border-color:#D9A354;color:#FFFFFF}
 body:has(#app-shell:not(.hidden)) .topbar{background:rgba(255,249,240,.93)}
