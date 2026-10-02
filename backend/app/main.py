@@ -1294,8 +1294,12 @@ def start_delivery(assignment_id: str, request: Request, db: Session = Depends(g
 @app.post("/api/assignments/{assignment_id}/otp")
 def create_otp(assignment_id: str, request: Request, db: Session = Depends(get_db)):
     actor = required_user(request, db)
+    assignment = assignment_for(db, assignment_id)
+    staff = staff_for(db, actor)
+    if not staff or staff.role_code != "DELIVERY_AGENT" or staff.staff_id != assignment.staff_id:
+        raise HTTPException(403, "Only the assigned delivery agent can request an OTP")
     try:
-        request_delivery_otp(db, assignment_for(db, assignment_id), actor)
+        request_delivery_otp(db, assignment, actor, staff)
         return {"assignment_id": assignment_id, "expires_in_seconds": 600, "delivery_otp_requested": True, "delivery_channel": "customer_notifications"}
     except (ValueError, PermissionError) as exc:
         raise HTTPException(403 if isinstance(exc, PermissionError) else 409, str(exc))
@@ -1304,8 +1308,12 @@ def create_otp(assignment_id: str, request: Request, db: Session = Depends(get_d
 @app.post("/api/assignments/{assignment_id}/deliver")
 def deliver(assignment_id: str, payload: DeliveryIn, request: Request, db: Session = Depends(get_db)):
     actor = required_user(request, db)
+    assignment = assignment_for(db, assignment_id)
+    staff = staff_for(db, actor)
+    if not staff or staff.role_code != "DELIVERY_AGENT" or staff.staff_id != assignment.staff_id:
+        raise HTTPException(403, "Only the assigned delivery agent can verify the OTP")
     try:
-        proof = verify_delivery(db, assignment_for(db, assignment_id), actor, payload.code, payload.remarks, payload.cash_collected)
+        proof = verify_delivery(db, assignment, actor, payload.code, payload.remarks, payload.cash_collected, staff)
         return {"proof_id": proof.proof_id, "assignment_id": assignment_id, "status": "DELIVERED"}
     except (ValueError, PermissionError) as exc:
         raise HTTPException(403 if isinstance(exc, PermissionError) else 409, str(exc))

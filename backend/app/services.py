@@ -381,9 +381,9 @@ def transition_assignment(db: Session, assignment: ShipmentAssignment, actor: Us
     return assignment
 
 
-def request_delivery_otp(db: Session, assignment: ShipmentAssignment, actor: UserLike) -> str:
+def request_delivery_otp(db: Session, assignment: ShipmentAssignment, actor: UserLike, assigned_staff: Staff | None = None) -> str:
     shipment = db.get(Shipment, assignment.shipment_id)
-    staff = db.scalar(select(Staff).where(Staff.user_id == actor.user_id))
+    staff = assigned_staff or db.scalar(select(Staff).where(Staff.user_id == actor.user_id, Staff.active.is_(True)))
     if not shipment or not staff or staff.staff_id != assignment.staff_id:
         raise PermissionError("Only the assigned delivery agent can request an OTP")
     if shipment.current_status != "OUT_FOR_DELIVERY" or assignment.status_code != "IN_PROGRESS":
@@ -410,9 +410,9 @@ def request_delivery_otp(db: Session, assignment: ShipmentAssignment, actor: Use
     return code
 
 
-def verify_delivery(db: Session, assignment: ShipmentAssignment, actor: UserLike, code: str, remarks: str, cash_collected: bool = False) -> ProofOfDelivery:
+def verify_delivery(db: Session, assignment: ShipmentAssignment, actor: UserLike, code: str, remarks: str, cash_collected: bool = False, assigned_staff: Staff | None = None) -> ProofOfDelivery:
     shipment = db.get(Shipment, assignment.shipment_id)
-    staff = db.scalar(select(Staff).where(Staff.user_id == actor.user_id))
+    staff = assigned_staff or db.scalar(select(Staff).where(Staff.user_id == actor.user_id, Staff.active.is_(True)))
     if not shipment or not staff or staff.staff_id != assignment.staff_id:
         raise PermissionError("Only the assigned delivery agent can verify the OTP")
     if shipment.current_status != "OUT_FOR_DELIVERY" or assignment.status_code != "IN_PROGRESS":
