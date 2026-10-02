@@ -127,6 +127,7 @@ body:has(#app-shell:not(.hidden)) .nav-item{color:#E7EEF5}
 body:has(#app-shell:not(.hidden)) .nav-item:hover{background:#172E4B;color:#FFFFFF}
 body:has(#app-shell:not(.hidden)) .nav-item.active{background:#DD9529;color:#0C1E36}
 .assignment-confirmation{display:grid;gap:5px;margin:0 0 22px;padding:22px 24px;border:1px solid #B9DFC0;border-radius:12px;background:#F1FAF2;color:#27643A}.assignment-confirmation strong{font-size:22px;letter-spacing:-.025em}.assignment-confirmation span{font-size:14px}
+.warehouse-confirmation{display:grid;gap:4px;margin:16px 0;padding:16px 18px;border:1px solid #B9DFC0;border-radius:12px;background:#F1FAF2;color:#27643A}.warehouse-confirmation strong{font-size:18px;letter-spacing:-.02em}.warehouse-confirmation span{font-size:13px}
 body:has(#app-shell:not(.hidden)) #sidebar[data-role="TRACKING_OFFICER"] [data-view="tracking"]{display:none!important}
 body:has(#app-shell:not(.hidden)) .sidebar-account-actions{border-top-color:#263D58}
 body:has(#app-shell:not(.hidden)) .sidebar-account-actions .button.ghost{border-color:#D9A354;color:#FFFFFF}
