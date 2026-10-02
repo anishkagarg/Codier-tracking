@@ -9,7 +9,7 @@ const ROLE_VIEWS = {
   OPERATIONS_MANAGER: ["dashboard", "shipments", "operations", "tasks", "warehouse", "finance", "complaints", "tracking", "reports", "route-planner"],
   ACCOUNTS_OFFICER: ["finance", "reports"],
   BOOKING_OFFICER: ["shipments", "operations", "tracking"],
-  DELIVERY_AGENT: ["tasks"],
+  DELIVERY_AGENT: ["tasks", "complaints"],
   PICKUP_AGENT: ["tasks", "work-history"],
   SUPPORT_OFFICER: ["complaints", "tracking"],
   TRACKING_OFFICER: ["shipments", "reports"],
@@ -58,11 +58,12 @@ function scrollToLandingSection(selector, focusSelector){
   section.scrollIntoView({behavior:"smooth",block:"center"});
   if(focusSelector)setTimeout(()=>$(focusSelector)?.focus({preventScroll:true}),450);
 }
-function showShell(){
+function showShell(restoreView=false){
   const a=state.account;
   const allowed=ROLE_VIEWS[a.role]||[];
   if(!allowed.length){showAuthError("This account has no workspace role. Contact an administrator.");return}
-  state.view=allowed[0];
+  const savedView=sessionStorage.getItem("optigo-view");
+  state.view=restoreView&&allowed.includes(savedView)?savedView:allowed[0];
   $("#auth-shell").classList.add("hidden");
   $("#app-shell").classList.remove("hidden");
   $("#app-shell").classList.toggle("customer-workspace",a.role==="CUSTOMER");
@@ -418,6 +419,20 @@ async function complaints(){
   $("#view").innerHTML=`<div class="section-heading"><div><h2>${staff?"Complaint queue":"How can we help?"}</h2><p>${staff?"Review and resolve customer complaints.":"Tell the OptiGo team what needs attention."}</p></div></div>${staff?"":`<form id="complaint-form" class="panel stack-form"><label>Shipment (optional)<select name="shipment_id"><option value="">General support</option>${ships.map(s=>`<option value="${esc(s.shipment_id)}">${esc(s.tracking_id)} · ${esc(s.status)}</option>`).join("")}</select></label><label>Subject<input name="subject" required minlength="3" maxlength="150" placeholder="What went wrong?"></label><label>Description<textarea name="description" required minlength="5" maxlength="4000" rows="4" placeholder="Describe the issue clearly"></textarea></label><button class="button primary" type="submit">Submit complaint <span>→</span></button><div id="complaint-result"></div></form>`}<div class="complaint-list">${d.complaints.length?d.complaints.map(c=>`<article class="panel complaint-card"><div class="panel-header"><h3>${esc(c.subject)}</h3><span class="status-badge status-${esc(c.status_code.toLowerCase().replaceAll("_","-"))}">${esc(c.status_code.replaceAll("_"," "))}</span></div><p>${esc(c.description)}</p><small>${formatDate(c.created_at)}${c.shipment_id?` · ${shipmentLink(c.shipment_id,null,"View shipment")}`:""}</small>${staff?`<div class="complaint-actions"><select data-complaint-status="${esc(c.complaint_id)}"><option ${c.status_code==="OPEN"?"selected":""}>OPEN</option><option ${c.status_code==="IN_PROGRESS"?"selected":""}>IN_PROGRESS</option><option ${c.status_code==="RESOLVED"?"selected":""}>RESOLVED</option><option ${c.status_code==="CLOSED"?"selected":""}>CLOSED</option></select><button class="button ghost small" data-complaint-update="${esc(c.complaint_id)}">Update status</button></div>`:""}</article>`).join(""):`<div class="panel empty-state"><strong>No complaints found</strong><span>Submitted support requests will appear here.</span></div>`}</div>`;
 }
 async function routePlanner(){setTitle("Route planner");const sample='[{"stop_id":"S1","label":"Andheri","latitude":19.1197,"longitude":72.8468},{"stop_id":"S2","label":"Powai","latitude":19.1176,"longitude":72.9060}]';$("#view").innerHTML=`<div class="section-heading"><div><h2>Optimize a delivery sequence.</h2><p>Arrange delivery stops in an efficient order.</p></div></div><section class="panel"><form id="route-form" class="form-grid"><div class="field"><label>Start latitude<input name="start_latitude" type="number" step="any" value="19.0760" required></label></div><div class="field"><label>Start longitude<input name="start_longitude" type="number" step="any" value="72.8777" required></label></div><div class="field" style="grid-column:1/-1"><label>Stops JSON<textarea name="stops" rows="7" required>${sample}</textarea></label></div><div class="form-actions" style="grid-column:1/-1"><button class="button primary">Optimize route <span>→</span></button></div></form><div id="route-result"></div></section></div>`;$("#route-form").onsubmit=async(e)=>{e.preventDefault();const f=new FormData(e.currentTarget);try{const stops=JSON.parse(f.get("stops"));const r=await api("/api/routes/optimize",{method:"POST",body:JSON.stringify({start_latitude:Number(f.get("start_latitude")),start_longitude:Number(f.get("start_longitude")),stops})});$("#route-result").innerHTML=`<div class="result-card"><h4>${esc(r.algorithm)}</h4><div>Total distance: <strong>${r.total_distance_km} km</strong></div><ol>${r.stops.map(s=>`<li>${esc(s.label)} · ${s.distance_from_previous_km} km from previous stop</li>`).join("")}</ol></div>`}catch(err){$("#route-result").innerHTML=`<div class="error-text">${esc(err.message)}</div>`}}}
+const baseComplaints=complaints;
+complaints=async function(){
+  await baseComplaints();
+  const data=await api("/api/complaints");
+  document.querySelectorAll(".complaint-card").forEach((card,index)=>{
+    const complaint=data.complaints[index], thread=document.createElement("div"), form=document.createElement("form");
+    thread.className="complaint-thread";
+    thread.innerHTML=complaint.messages?.length?complaint.messages.map(message=>`<p><strong>${esc(message.sender_role.replaceAll("_"," "))}:</strong> ${esc(message.message)}<small>${formatDateTime(message.created_at)}</small></p>`).join(""):`<p class="muted">No replies yet.</p>`;
+    form.className="complaint-message-form";
+    form.dataset.complaintMessage=complaint.complaint_id;
+    form.innerHTML='<textarea name="message" rows="2" minlength="2" maxlength="4000" required placeholder="Write a response…"></textarea><button class="button secondary small">Send reply</button>';
+    card.append(thread,form);
+  });
+};
 async function payments(){
   setTitle("Payments");
   const [all,options]=await Promise.all([api("/api/shipments"),api("/api/payments/options")]);
@@ -605,11 +620,27 @@ document.addEventListener("submit",async(e)=>{
   finally{button.disabled=false}
 });
 document.addEventListener("submit",async(e)=>{if(e.target.id==="complaint-form"){e.preventDefault();const payload=Object.fromEntries(new FormData(e.target));if(!payload.shipment_id)delete payload.shipment_id;try{await api("/api/complaints",{method:"POST",body:JSON.stringify(payload)});e.target.reset();$("#complaint-result").innerHTML=`<div class="result-card"><h4>Complaint submitted</h4><div>Support will review your request.</div></div>`;await complaints();toast("Complaint submitted")}catch(err){$("#complaint-result").innerHTML=`<div class="error-text">${esc(err.message)}</div>`}}});
+document.addEventListener("submit",async event=>{
+  const form=event.target.closest("[data-complaint-message]");
+  if(!form)return;
+  event.preventDefault();
+  const button=form.querySelector("button"), message=new FormData(form).get("message").trim();
+  button.disabled=true;
+  try{await api(`/api/complaints/${form.dataset.complaintMessage}/messages`,{method:"POST",body:JSON.stringify({message})});await complaints();}
+  catch(error){toast(error.message,true)}
+  finally{button.disabled=false}
+});
 function closeLogoutModal(){$("#logout-modal").classList.add("hidden")}
 $("#logout-button").onclick=()=>{$("#logout-modal").classList.remove("hidden");$("#cancel-logout").focus()};$("#cancel-logout").onclick=closeLogoutModal;$("#logout-modal").onclick=(e)=>{if(e.target.id==="logout-modal")closeLogoutModal()};$("#confirm-logout").onclick=async()=>{const button=$("#confirm-logout");button.disabled=true;try{await api("/api/auth/logout",{method:"POST"});state.account=null;closeLogoutModal();$("#app-shell").classList.add("hidden");$("#auth-shell").classList.remove("hidden");renderAuth("login")}catch(err){closeLogoutModal();toast(err.message,true)}finally{button.disabled=false}};function closeDeleteModal(){$("#delete-account-modal").classList.add("hidden")}$("#delete-account-button").onclick=()=>{$("#delete-account-modal").classList.remove("hidden");$("#cancel-delete-account").focus()};$("#cancel-delete-account").onclick=closeDeleteModal;$("#delete-account-modal").onclick=(e)=>{if(e.target.id==="delete-account-modal")closeDeleteModal()};$("#confirm-delete-account").onclick=async()=>{const button=$("#confirm-delete-account");button.disabled=true;try{await api("/api/auth/account",{method:"DELETE"});state.account=null;closeDeleteModal();$("#app-shell").classList.add("hidden");$("#auth-shell").classList.remove("hidden");renderAuth("login");showAuthMessage("Account deleted successfully.",true)}catch(err){closeDeleteModal();toast(err.message,true)}finally{button.disabled=false}};$("#menu-button").onclick=()=>{$("#sidebar").classList.toggle("open");$("#sidebar-overlay").classList.toggle("show")};$("#sidebar-overlay").onclick=()=>{$("#sidebar").classList.remove("open");$("#sidebar-overlay").classList.remove("show")};
-// Opening the site begins at sign-in, even when this browser held a prior session.
 renderAuth("login");
-startupReady=api("/api/auth/logout",{method:"POST"}).catch(()=>{});
+startupReady=api("/api/auth/me").then(session=>{
+  if(session.authenticated&&session.account){state.account=session.account;showShell(true);}
+  return session;
+}).catch(()=>null);
+document.addEventListener("click",event=>{
+  const view=event.target.closest("[data-view]")?.dataset.view;
+  if(view)sessionStorage.setItem("optigo-view",view);
+});
 $("#landing-booking-form").onsubmit=(event)=>{event.preventDefault();startLandingBooking(event.currentTarget)};
 (()=>{const form=$("#landing-booking-form"),price=$("#landing-price");let timer;async function quote(){const sender=form.elements.sender_postal_code.value,receiver=form.elements.receiver_postal_code.value,weight=Number(form.elements.weight_kg.value);if(!/^\d{6}$/.test(sender)||!/^\d{6}$/.test(receiver)||!Number.isFinite(weight)||weight<=0){price.textContent="Enter both 6-digit PIN codes and parcel weight to see the exact charge.";return}price.textContent="Calculating exact charge…";try{const response=await fetch(`${API}/api/public/pricing/quote`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({weight_kg:weight,delivery_type_code:form.elements.delivery_type_code.value,destination_zone:"LOCAL"})});const data=await response.json();if(!response.ok)throw new Error(data.detail||"Charge unavailable");const quote={subtotal:data.subtotal??data.total??data.amount,discount:data.discount??"0.00",discounts:data.discounts||[],currency:data.currency};price.innerHTML=`Exact payable charge: <strong>${money(data.total??data.amount,data.currency)}</strong><small>${sender} → ${receiver} · all eligible offers are applied.</small>${pricingSavingsMarkup(quote)}`}catch(error){price.textContent="Exact charge is unavailable right now. Please try again."}}function schedule(){clearTimeout(timer);timer=setTimeout(quote,300)}["sender_postal_code","receiver_postal_code","weight_kg","delivery_type_code"].forEach(name=>form.elements[name].addEventListener(name==="delivery_type_code"?"change":"input",schedule));})();
 $("#public-track-form").onsubmit=async(event)=>{

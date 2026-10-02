@@ -24,7 +24,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from typing import Literal
 
 from .db import SessionLocal, engine, get_db
-from .models import Address, AdminRecoveryState, AssignmentStatus, BookingIdempotency, CodCollection, Complaint, ComplaintStatus, Customer, DeliveryOTP, DeliveryType, Department, FinancePosition, FinanceTransaction, Hub, Invoice, LocationUpdate, Notification, PasswordResetOTP, Payment, PricingRule, ProofOfDelivery, Refund, Route, Shipment, ShipmentAssignment, ShipmentStatusHistory, Staff, StaffRole, User, Vehicle, WarehouseScan
+from .models import Address, AdminRecoveryState, AssignmentStatus, BookingIdempotency, CodCollection, Complaint, ComplaintMessage, ComplaintStatus, Customer, DeliveryOTP, DeliveryType, Department, FinancePosition, FinanceTransaction, Hub, Invoice, LocationUpdate, Notification, PasswordResetOTP, Payment, PricingRule, ProofOfDelivery, Refund, Route, Shipment, ShipmentAssignment, ShipmentStatusHistory, Staff, StaffRole, User, Vehicle, WarehouseScan
 from .security import hash_otp, hash_password, verify_otp, verify_password
 from .services import add_location_and_history, apply_shipping_offers, assign_task, auto_assign_task, create_booking, delivery_assessment, haversine_km, latest_gps_location, new_id, optimize_route, parse_gps_location, price_for_weight, public_tracking, request_delivery_otp, send_password_reset_email, transition_assignment, verify_delivery
 
@@ -71,6 +71,7 @@ async def lifespan(_app: FastAPI):
     AdminRecoveryState.__table__.create(bind=engine, checkfirst=True)
     FinanceTransaction.__table__.create(bind=engine, checkfirst=True)
     FinancePosition.__table__.create(bind=engine, checkfirst=True)
+    ComplaintMessage.__table__.create(bind=engine, checkfirst=True)
     # Initialize a persistent one-use latch. Concurrent instances may race on
     # first startup; a unique primary key makes the losing insert harmless.
     with SessionLocal() as db:
@@ -301,6 +302,10 @@ class ComplaintUpdateIn(BaseModel):
     status_code: str = Field(pattern="^(OPEN|IN_PROGRESS|RESOLVED|CLOSED)$")
 
 
+class ComplaintMessageIn(BaseModel):
+    message: str = Field(min_length=2, max_length=4000)
+
+
 class FinanceTransactionIn(BaseModel):
     entry_type: Literal["EXPENSE", "OTHER_INCOME"]
     category: str = Field(min_length=2, max_length=40, pattern="^[A-Z_]+$")
@@ -408,7 +413,12 @@ def notification_view(notification: Notification) -> dict:
     }
 
 
-def complaint_view(complaint: Complaint) -> dict:
+def complaint_view(db: Session, complaint: Complaint) -> dict:
+    delivery_assignment = db.scalar(select(ShipmentAssignment).where(
+        ShipmentAssignment.shipment_id == complaint.shipment_id,
+        ShipmentAssignment.task_type_code == "DELIVERY",
+    )) if complaint.shipment_id else None
+    messages = db.scalars(select(ComplaintMessage).where(ComplaintMessage.complaint_id == complaint.complaint_id).order_by(ComplaintMessage.created_at, ComplaintMessage.message_id)).all()
     return {
         "complaint_id": complaint.complaint_id,
         "customer_id": complaint.customer_id,
@@ -419,7 +429,30 @@ def complaint_view(complaint: Complaint) -> dict:
         "created_at": complaint.created_at.isoformat(),
         "resolved_at": complaint.resolved_at.isoformat() if complaint.resolved_at else None,
         "handled_by_id": complaint.handled_by_id,
+        "assigned_department": "DELIVERY" if delivery_assignment else "SUPPORT",
+        "assigned_staff_id": delivery_assignment.staff_id if delivery_assignment else None,
+        "messages": [{"message_id": row.message_id, "sender_role": row.sender_role, "message": row.message, "created_at": row.created_at.isoformat()} for row in messages],
     }
+
+
+def delivery_agent_complaint_ids(db: Session, staff: Staff) -> set[str]:
+    if staff.role_code != "DELIVERY_AGENT":
+        return set()
+    return set(db.scalars(select(Complaint.complaint_id).join(
+        ShipmentAssignment, ShipmentAssignment.shipment_id == Complaint.shipment_id
+    ).where(
+        ShipmentAssignment.task_type_code == "DELIVERY",
+        ShipmentAssignment.staff_id == staff.staff_id,
+        Complaint.status_code.not_in(["RESOLVED", "CLOSED"]),
+    )).all())
+
+
+def complaint_accessible_to(db: Session, complaint: Complaint, user: User, customer: Customer | None, staff: Staff | None) -> bool:
+    if customer and complaint.customer_id == customer.customer_id:
+        return True
+    if staff and staff.role_code in {"ADMINISTRATOR", "OPERATIONS_MANAGER", "SUPPORT_OFFICER"}:
+        return True
+    return bool(staff and complaint.complaint_id in delivery_agent_complaint_ids(db, staff))
 
 
 @app.get("/health/live")
@@ -792,9 +825,12 @@ def complaints(request: Request, db: Session = Depends(get_db)):
         if not customer:
             raise HTTPException(403, "A customer profile is required")
         stmt = stmt.where(Complaint.customer_id == customer.customer_id)
+    elif staff.role_code == "DELIVERY_AGENT":
+        complaint_ids = delivery_agent_complaint_ids(db, staff)
+        stmt = stmt.where(Complaint.complaint_id.in_(complaint_ids))
     elif staff.role_code not in {"ADMINISTRATOR", "OPERATIONS_MANAGER", "SUPPORT_OFFICER"}:
         raise HTTPException(403, "Your role is not authorized to view complaints")
-    return {"complaints": [complaint_view(row) for row in db.scalars(stmt).all()]}
+    return {"complaints": [complaint_view(db, row) for row in db.scalars(stmt).all()]}
 
 
 @app.post("/api/complaints", status_code=201)
@@ -820,7 +856,7 @@ def create_complaint(payload: ComplaintIn, request: Request, db: Session = Depen
     )
     db.add(complaint)
     db.commit()
-    return complaint_view(complaint)
+    return complaint_view(db, complaint)
 
 
 @app.patch("/api/complaints/{complaint_id}")
@@ -833,7 +869,30 @@ def update_complaint(complaint_id: str, payload: ComplaintUpdateIn, request: Req
     complaint.handled_by_id = staff.staff_id
     complaint.resolved_at = datetime.now(timezone.utc) if payload.status_code in {"RESOLVED", "CLOSED"} else None
     db.commit()
-    return complaint_view(complaint)
+    return complaint_view(db, complaint)
+
+
+@app.post("/api/complaints/{complaint_id}/messages", status_code=201)
+def create_complaint_message(complaint_id: str, payload: ComplaintMessageIn, request: Request, db: Session = Depends(get_db)):
+    user = required_user(request, db)
+    customer = db.scalar(select(Customer).where(Customer.user_id == user.user_id))
+    staff = staff_for(db, user)
+    complaint = db.get(Complaint, complaint_id)
+    if not complaint or not complaint_accessible_to(db, complaint, user, customer, staff):
+        raise HTTPException(404, "Complaint not found")
+    sender_role = staff.role_code if staff else "CUSTOMER"
+    db.add(ComplaintMessage(
+        message_id=new_id(db, ComplaintMessage, "message_id", "OBUCMT"),
+        complaint_id=complaint.complaint_id,
+        sender_user_id=user.user_id,
+        sender_role=sender_role,
+        message=payload.message.strip(),
+        created_at=datetime.now(timezone.utc),
+    ))
+    if complaint.status_code == "OPEN":
+        complaint.status_code = "IN_PROGRESS"
+    db.commit()
+    return complaint_view(db, complaint)
 
 
 @app.get("/api/dashboard")

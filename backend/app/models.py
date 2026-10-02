@@ -472,3 +472,13 @@ class Complaint(Base):
     created_at = Column(DateTime(timezone=True), nullable=False)
     resolved_at = Column(DateTime(timezone=True), nullable=True)
     handled_by_id = Column(String(12), ForeignKey("staff.staff_id"), nullable=True)
+
+
+class ComplaintMessage(Base):
+    __tablename__ = "complaint_messages"
+    message_id = Column(String(40), primary_key=True, nullable=False)
+    complaint_id = Column(String(40), ForeignKey("complaints.complaint_id", ondelete="CASCADE"), nullable=False)
+    sender_user_id = Column(String(12), ForeignKey("users.user_id"), nullable=False)
+    sender_role = Column(String(30), nullable=False)
+    message = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False)
