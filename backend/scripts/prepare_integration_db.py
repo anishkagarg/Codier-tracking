@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.db import Base, make_engine
 from app.models import (
-    AssignmentStatus, Customer, Department, DeliveryType, Hub, NotificationChannel,
+    AssignmentStatus, ComplaintStatus, Customer, Department, DeliveryType, Hub, NotificationChannel,
     NotificationStatus, NotificationType, PaymentMethod, PaymentStatus, PricingRule,
     Route, SettlementStatus, ShipmentStatus, Staff, StaffRole, TaskType, User, Vehicle,
 )
@@ -70,6 +70,10 @@ def main() -> None:
             NotificationType(type_code="OTP", display_name="Delivery OTP"),
             NotificationChannel(channel_code="IN_APP", display_name="In app"),
             NotificationStatus(status_code="SENT", display_name="Sent"),
+            ComplaintStatus(status_code="OPEN", display_name="Open"),
+            ComplaintStatus(status_code="IN_PROGRESS", display_name="In progress"),
+            ComplaintStatus(status_code="RESOLVED", display_name="Resolved"),
+            ComplaintStatus(status_code="CLOSED", display_name="Closed"),
         ])
         db.flush()
         rule = PricingRule(pricing_rule_id="TEST-PRICE-1", version="TEST-1", destination_zone="LOCAL", delivery_type_code="STANDARD", rate_parameters={"base_charge": "40", "per_kg": "10"}, currency="INR", effective_from=date(2020, 1, 1), effective_to=date(2099, 12, 31))

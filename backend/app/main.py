@@ -24,7 +24,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from typing import Literal
 
 from .db import SessionLocal, engine, get_db
-from .models import Address, AdminRecoveryState, AssignmentStatus, BookingIdempotency, CodCollection, Complaint, Customer, DeliveryOTP, DeliveryType, Department, FinancePosition, FinanceTransaction, Hub, Invoice, LocationUpdate, Notification, PasswordResetOTP, Payment, PricingRule, ProofOfDelivery, Refund, Route, Shipment, ShipmentAssignment, ShipmentStatusHistory, Staff, StaffRole, User, Vehicle, WarehouseScan
+from .models import Address, AdminRecoveryState, AssignmentStatus, BookingIdempotency, CodCollection, Complaint, ComplaintStatus, Customer, DeliveryOTP, DeliveryType, Department, FinancePosition, FinanceTransaction, Hub, Invoice, LocationUpdate, Notification, PasswordResetOTP, Payment, PricingRule, ProofOfDelivery, Refund, Route, Shipment, ShipmentAssignment, ShipmentStatusHistory, Staff, StaffRole, User, Vehicle, WarehouseScan
 from .security import hash_otp, hash_password, verify_otp, verify_password
 from .services import add_location_and_history, apply_shipping_offers, assign_task, auto_assign_task, create_booking, delivery_assessment, haversine_km, latest_gps_location, new_id, optimize_route, parse_gps_location, price_for_weight, public_tracking, request_delivery_otp, send_password_reset_email, transition_assignment, verify_delivery
 
@@ -76,10 +76,16 @@ async def lifespan(_app: FastAPI):
     with SessionLocal() as db:
         if not db.get(AdminRecoveryState, "admin"):
             db.add(AdminRecoveryState(singleton_id="admin"))
-            try:
-                db.commit()
-            except IntegrityError:
-                db.rollback()
+        # The complaints table has a foreign key to these operational states.
+        # Older deployed databases may contain the table but not its lookup
+        # rows, which would reject every customer complaint on insert.
+        for code, label in (("OPEN", "Open"), ("IN_PROGRESS", "In progress"), ("RESOLVED", "Resolved"), ("CLOSED", "Closed")):
+            if not db.get(ComplaintStatus, code):
+                db.add(ComplaintStatus(status_code=code, display_name=label))
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
     with engine.begin() as connection:
         connection.execute(text("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS preferred_payment_mode VARCHAR(20)"))
         connection.execute(text("ALTER TABLE notifications ALTER COLUMN read_at DROP NOT NULL"))
