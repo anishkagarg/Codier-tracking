@@ -565,26 +565,26 @@ def recover_admin_access(payload: AdminRecoveryIn, db: Session = Depends(get_db)
     if recovery_state.completed_at:
         raise HTTPException(410, "The one-time administrator recovery has already been used")
 
-    active_admins = db.execute(
+    administrators = db.execute(
         select(Staff, User)
         .join(User, Staff.user_id == User.user_id)
         .where(
             Staff.role_code == "ADMINISTRATOR",
-            Staff.active.is_(True),
-            User.active.is_(True),
         )
         .with_for_update()
     ).all()
-    if len(active_admins) != 1:
-        raise HTTPException(409, "Recovery requires exactly one active administrator account")
+    if len(administrators) != 1:
+        raise HTTPException(409, "Recovery requires exactly one administrator account")
 
-    _staff, admin_user = active_admins[0]
+    admin_staff, admin_user = administrators[0]
     email = payload.email.strip().lower()
     email_owner = db.scalar(select(User).where(func.lower(User.email) == email))
     if email_owner and email_owner.user_id != admin_user.user_id:
         raise HTTPException(409, "That email is already assigned to another account")
 
     now = datetime.now(timezone.utc)
+    admin_staff.active = True
+    admin_user.active = True
     admin_user.email = email
     admin_user.password_hash = hash_password(payload.password)
     admin_user.updated_at = now

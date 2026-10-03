@@ -306,6 +306,11 @@ def test_admin_recovery_updates_only_existing_admin_once_and_rejects_wrong_key(m
             AdminRecoveryState(singleton_id="admin"),
         ])
         db.commit()
+        # Deleting the administrator is a soft delete. Recovery must restore
+        # that same account rather than requiring a second administrator.
+        original_admin.active = False
+        db.query(Staff).filter_by(user_id=original_admin.user_id).one().active = False
+        db.commit()
 
     test_app = FastAPI()
     test_app.post("/api/admin/recovery")(main.recover_admin_access)
@@ -330,8 +335,10 @@ def test_admin_recovery_updates_only_existing_admin_once_and_rejects_wrong_key(m
         with Session(engine) as db:
             admin = db.get(User, "OBUUSR000001")
             assert admin.email == "new-admin@example.test"
+            assert admin.active is True
             assert verify_password(payload["password"], admin.password_hash)
-            assert db.query(Staff).filter_by(user_id=admin.user_id, role_code="ADMINISTRATOR").count() == 1
+            restored_staff = db.query(Staff).filter_by(user_id=admin.user_id, role_code="ADMINISTRATOR").one()
+            assert restored_staff.active is True
         assert client.post("/api/admin/recovery", json=payload).status_code == 410
     engine.dispose()
 

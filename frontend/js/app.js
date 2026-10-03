@@ -9,7 +9,7 @@ const ROLE_VIEWS = {
   OPERATIONS_MANAGER: ["dashboard", "shipments", "operations", "tasks", "warehouse", "finance", "complaints", "tracking", "reports", "route-planner"],
   ACCOUNTS_OFFICER: ["finance", "reports"],
   BOOKING_OFFICER: ["shipments", "operations", "tracking"],
-  DELIVERY_AGENT: ["tasks", "complaints"],
+  DELIVERY_AGENT: ["tasks", "work-history", "complaints"],
   PICKUP_AGENT: ["tasks", "work-history"],
   SUPPORT_OFFICER: ["complaints", "tracking"],
   TRACKING_OFFICER: ["shipments", "reports"],
@@ -278,12 +278,16 @@ async function tasks(){
     actions.insertAdjacentHTML("beforeend",`<div class="task-feedback" data-task-feedback="${esc(t.assignment_id)}" role="status" aria-live="polite"></div>`);
   });
 }
-async function pickupWorkHistory(){
+async function workHistory(){
+  const isDelivery=state.account.role==="DELIVERY_AGENT";
+  const taskType=isDelivery?"DELIVERY":"PICKUP";
+  const activityName=isDelivery?"delivery":"pickup";
+  const completionDetail=isDelivery?"Delivery completed and recorded":"Pickup completed and recorded";
   setTitle("Working history");
   const d=await api("/api/tasks");
-  const activity=d.tasks.filter(task=>task.task_type_code==="PICKUP"&&["COMPLETED","FAILED"].includes(task.status_code)).sort((a,b)=>new Date(b.completed_at||b.assigned_at)-new Date(a.completed_at||a.assigned_at));
-  const rows=activity.map(task=>`<tr><td>${formatDateTime(task.completed_at||task.assigned_at)}</td><td>${shipmentLink(task.shipment_id,task.tracking_id)}</td><td><span class="status-badge ${task.status_code==="COMPLETED"?"status-delivered":"status-failed"}">${esc(task.status_code.replaceAll("_"," "))}</span></td><td>${esc(task.status_code==="FAILED"?task.failure_reason||"Pickup could not be completed":"Pickup completed and recorded")}</td></tr>`).join("");
-  $("#view").innerHTML=`<div class="section-heading"><div><h2>Working history</h2><p>Completed and unsuccessful pickup actions recorded under your account.</p></div></div>${activity.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>Date and time</th><th>Tracking ID</th><th>Outcome</th><th>Details</th></tr></thead><tbody>${rows}</tbody></table></div>`:`<div class="panel empty-state"><strong>No pickup activity recorded</strong><span>Completed and unsuccessful pickup actions will appear here.</span></div>`}`;
+  const activity=d.tasks.filter(task=>task.task_type_code===taskType&&["COMPLETED","FAILED"].includes(task.status_code)).sort((a,b)=>new Date(b.completed_at||b.assigned_at)-new Date(a.completed_at||a.assigned_at));
+  const rows=activity.map(task=>`<tr><td>${formatDateTime(task.completed_at||task.assigned_at)}</td><td>${shipmentLink(task.shipment_id,task.tracking_id)}</td><td><span class="status-badge ${task.status_code==="COMPLETED"?"status-delivered":"status-failed"}">${esc(task.status_code.replaceAll("_"," "))}</span></td><td>${esc(task.status_code==="FAILED"?task.failure_reason||`${taskType[0]}${taskType.slice(1).toLowerCase()} could not be completed`:completionDetail)}</td></tr>`).join("");
+  $("#view").innerHTML=`<div class="section-heading"><div><h2>Working history</h2><p>Completed and unsuccessful ${activityName} actions recorded under your account.</p></div></div>${activity.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>Date and time</th><th>Tracking ID</th><th>Outcome</th><th>Details</th></tr></thead><tbody>${rows}</tbody></table></div>`:`<div class="panel empty-state"><strong>No ${activityName} activity recorded</strong><span>Completed and unsuccessful ${activityName} actions will appear here.</span></div>`}`;
 }
 async function reports(){
   setTitle("Reports");
@@ -449,7 +453,7 @@ async function payments(){
   $("#view").innerHTML=`<div class="section-heading"><div><h2>Online payments</h2><p>Review online payment requests for your shipments.</p></div></div>${!options.demo_online_available?`<div class="panel empty-state"><strong>Online payment is unavailable.</strong><span>Cash bookings are still available.</span></div>`:pending.length?`<section class="panel"><form id="payment-form" class="form-grid"><div class="field" style="grid-column:1/-1"><label>Shipment<select name="shipment_id" required>${pending.map(s=>`<option value="${esc(s.shipment_id)}">${esc(s.tracking_id)} · ${money(s.charge,s.currency)}</option>`).join("")}</select></label></div><div class="form-actions" style="grid-column:1/-1"><button class="button primary">Continue to online payment <span>→</span></button></div></form><div id="payment-result"></div></section>`:`<div class="panel empty-state"><strong>No online payment is due.</strong></div>`}`;
   if($("#payment-form"))$("#payment-form").onsubmit=(e)=>{e.preventDefault();completeDemoPayment(new FormData(e.currentTarget).get("shipment_id"),$("#payment-result"))};
 }
-async function navigate(view){if(!state.account||!(ROLE_VIEWS[state.account.role]||[]).includes(view))return;state.view=view;document.querySelector("#sidebar").classList.remove("open");$("#view").innerHTML='<div class="panel empty-state">Loading workspace…</div>';try{if(view==="dashboard")await dashboard();else if(view==="shipments")await shipments();else if(view==="booking")booking();else if(view==="tracking")tracking();else if(view==="addressbook")await addressbook();else if(view==="notifications")await notifications();else if(view==="complaints")await complaints();else if(view==="tasks")await tasks();else if(view==="work-history")await pickupWorkHistory();else if(view==="operations")await operations();else if(view==="route-planner")await routePlanner();else if(view==="payments")await payments();else if(view==="reports")await reports();else if(view==="warehouse")await warehouse();else if(view==="finance")await finance();else if(view==="staff")await staffAdmin()}catch(err){toast(err.message,true);$("#view").innerHTML=`<div class="panel empty-state"><strong>Unable to load this view</strong><span>${esc(err.message)}</span></div>`}}
+async function navigate(view){if(!state.account||!(ROLE_VIEWS[state.account.role]||[]).includes(view))return;state.view=view;document.querySelector("#sidebar").classList.remove("open");$("#view").innerHTML='<div class="panel empty-state">Loading workspace…</div>';try{if(view==="dashboard")await dashboard();else if(view==="shipments")await shipments();else if(view==="booking")booking();else if(view==="tracking")tracking();else if(view==="addressbook")await addressbook();else if(view==="notifications")await notifications();else if(view==="complaints")await complaints();else if(view==="tasks")await tasks();else if(view==="work-history")await workHistory();else if(view==="operations")await operations();else if(view==="route-planner")await routePlanner();else if(view==="payments")await payments();else if(view==="reports")await reports();else if(view==="warehouse")await warehouse();else if(view==="finance")await finance();else if(view==="staff")await staffAdmin()}catch(err){toast(err.message,true);$("#view").innerHTML=`<div class="panel empty-state"><strong>Unable to load this view</strong><span>${esc(err.message)}</span></div>`}}
 function setTaskFeedback(assignmentId,message,isError=false){
   const feedback=[...document.querySelectorAll("[data-task-feedback]")].find(node=>node.dataset.taskFeedback===assignmentId);
   if(feedback)feedback.innerHTML=`<span class="${isError?"is-error":"is-success"}">${esc(message)}</span>`;
