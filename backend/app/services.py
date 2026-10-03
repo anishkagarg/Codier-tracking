@@ -85,6 +85,31 @@ def apply_shipping_offers(subtotal: Decimal, currency: str) -> dict:
     }
 
 
+def quote_shipping_charge(db: Session, delivery_type: str, zone: str, weight: Decimal, priority: bool = False) -> dict:
+    """Calculate the customer-facing charge, including explicit service upgrades."""
+    normalized_delivery = delivery_type.strip().upper()
+    # Express is a service upgrade over the standard transport rate, rather than
+    # a separate rule that might not have been configured in the database.
+    pricing_delivery = "STANDARD" if normalized_delivery == "EXPRESS" else normalized_delivery
+    base_subtotal, rule = price_for_weight(db, pricing_delivery, zone, weight)
+    service_upgrade_fee = Decimal("100.00") if normalized_delivery == "EXPRESS" else Decimal("0.00")
+    if priority:
+        service_upgrade_fee += Decimal("100.00")
+    offers = apply_shipping_offers(base_subtotal, rule.currency)
+    subtotal = money(base_subtotal + service_upgrade_fee)
+    total = money(offers["total"] + service_upgrade_fee)
+    return {
+        "subtotal": subtotal,
+        "base_subtotal": base_subtotal,
+        "service_upgrade_fee": money(service_upgrade_fee),
+        "discount": offers["discount"],
+        "discounts": offers["discounts"],
+        "total": total,
+        "currency": rule.currency,
+        "rule": rule,
+    }
+
+
 def create_notification(db: Session, shipment: Shipment, type_code: str, message: str) -> Notification | None:
     """Record an in-app notification without making shipment writes depend on it.
 
@@ -283,9 +308,10 @@ def create_booking(db: Session, customer: Customer, actor: UserLike, sender: dic
     delivery_type = parcel["delivery_type_code"]
     zone = parcel.get("destination_zone", "LOCAL")
     weight = Decimal(str(parcel["weight_kg"]))
-    subtotal, rule = price_for_weight(db, delivery_type, zone, weight)
-    pricing = apply_shipping_offers(subtotal, rule.currency)
+    pricing = quote_shipping_charge(db, delivery_type, zone, weight, bool(parcel.get("priority")))
+    subtotal = pricing["subtotal"]
     charge = pricing["total"]
+    rule = pricing["rule"]
     now = datetime.now(timezone.utc)
     eta_days = 1 if delivery_type == "SAME_DAY" else (2 if delivery_type == "EXPRESS" else 5)
     eta = now + timedelta(days=eta_days)

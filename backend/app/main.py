@@ -26,7 +26,7 @@ from typing import Literal
 from .db import SessionLocal, engine, get_db
 from .models import Address, AdminRecoveryState, AssignmentStatus, BookingIdempotency, CodCollection, Complaint, ComplaintMessage, ComplaintStatus, Customer, DeliveryOTP, DeliveryType, Department, FinancePosition, FinanceTransaction, Hub, Invoice, LocationUpdate, Notification, PasswordResetOTP, Payment, PricingRule, ProofOfDelivery, Refund, Route, Shipment, ShipmentAssignment, ShipmentStatusHistory, Staff, StaffRole, User, Vehicle, WarehouseScan
 from .security import hash_otp, hash_password, verify_otp, verify_password
-from .services import add_location_and_history, apply_shipping_offers, assign_task, auto_assign_task, create_booking, delivery_assessment, haversine_km, latest_gps_location, new_id, optimize_route, parse_gps_location, price_for_weight, public_tracking, request_delivery_otp, send_password_reset_email, transition_assignment, verify_delivery
+from .services import add_location_and_history, assign_task, auto_assign_task, create_booking, delivery_assessment, haversine_km, latest_gps_location, new_id, optimize_route, parse_gps_location, public_tracking, quote_shipping_charge, request_delivery_otp, send_password_reset_email, transition_assignment, verify_delivery
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +132,6 @@ class RegisterIn(AuthIn):
 class StaffAccountIn(AuthIn):
     name: str = Field(min_length=2, max_length=120)
     phone: str = Field(min_length=7, max_length=30)
-    employee_id: str = Field(min_length=2, max_length=30)
     department_code: str = Field(min_length=2, max_length=30)
     role_code: str = Field(min_length=2, max_length=30)
 
@@ -234,8 +233,14 @@ class BookingIn(BaseModel):
 
 class PriceQuoteIn(BaseModel):
     weight_kg: Decimal = Field(gt=0, max_digits=12, decimal_places=3)
+    # Dimensions are accepted for the booking-form preview. Defaults preserve
+    # the lightweight public landing-page quote, which only asks for weight.
+    length_cm: Decimal = Field(default=Decimal("1"), gt=0, max_digits=12, decimal_places=2)
+    width_cm: Decimal = Field(default=Decimal("1"), gt=0, max_digits=12, decimal_places=2)
+    height_cm: Decimal = Field(default=Decimal("1"), gt=0, max_digits=12, decimal_places=2)
     delivery_type_code: str = Field(default="STANDARD", max_length=20)
     destination_zone: str = Field(default="LOCAL", max_length=100)
+    priority: bool = False
 
 
 class AssignmentIn(BaseModel):
@@ -676,13 +681,11 @@ def create_staff_account(payload: StaffAccountIn, request: Request, db: Session 
     """Create a separate staff login without weakening customer self-registration."""
     required_staff(request, db, {"ADMINISTRATOR"})
     email = str(payload.email).lower().strip()
-    employee_id = payload.employee_id.strip()
+    employee_id = new_id(db, Staff, "employee_id", "OBUEMP")
     role_code = payload.role_code.strip().upper()
     department_code = payload.department_code.strip().upper()
     if db.scalar(select(User).where(User.email == email)):
         raise HTTPException(409, "An account with that email already exists")
-    if db.scalar(select(Staff).where(Staff.employee_id == employee_id)):
-        raise HTTPException(409, "That employee ID is already in use")
     if not db.get(StaffRole, role_code):
         raise HTTPException(400, "Select a valid staff role")
     if not db.get(Department, department_code):
@@ -1020,9 +1023,9 @@ def book_shipment(payload: BookingIn, request: Request, db: Session = Depends(ge
 def pricing_quote(payload: PriceQuoteIn, request: Request, db: Session = Depends(get_db)):
     required_user(request, db)
     try:
-        subtotal, rule = price_for_weight(db, payload.delivery_type_code, payload.destination_zone, payload.weight_kg)
-        pricing = apply_shipping_offers(subtotal, rule.currency)
-        return {"amount": str(pricing["total"]), "subtotal": str(pricing["subtotal"]), "discount": str(pricing["discount"]), "discounts": [{**offer, "amount": str(offer["amount"])} for offer in pricing["discounts"]], "currency": rule.currency.strip(), "delivery_type_code": payload.delivery_type_code, "weight_kg": str(payload.weight_kg), "pricing_rule_version": rule.version}
+        pricing = quote_shipping_charge(db, payload.delivery_type_code, payload.destination_zone, payload.weight_kg, payload.priority)
+        rule = pricing["rule"]
+        return {"amount": str(pricing["total"]), "subtotal": str(pricing["subtotal"]), "discount": str(pricing["discount"]), "discounts": [{**offer, "amount": str(offer["amount"])} for offer in pricing["discounts"]], "service_upgrade_fee": str(pricing["service_upgrade_fee"]), "currency": rule.currency.strip(), "delivery_type_code": payload.delivery_type_code, "weight_kg": str(payload.weight_kg), "pricing_rule_version": rule.version}
     except ValueError as exc:
         raise HTTPException(409, str(exc))
 
@@ -1031,9 +1034,9 @@ def pricing_quote(payload: PriceQuoteIn, request: Request, db: Session = Depends
 def public_pricing_quote(payload: PriceQuoteIn, db: Session = Depends(get_db)):
     """Return the exact post-offer charge produced by the booking rule."""
     try:
-        subtotal, rule = price_for_weight(db, payload.delivery_type_code, payload.destination_zone, payload.weight_kg)
-        pricing = apply_shipping_offers(subtotal, rule.currency)
-        return {"amount": str(pricing["total"]), "subtotal": str(pricing["subtotal"]), "discount": str(pricing["discount"]), "discounts": [{**offer, "amount": str(offer["amount"])} for offer in pricing["discounts"]], "total": str(pricing["total"]), "tax": "0.00", "currency": rule.currency.strip(), "delivery_type_code": payload.delivery_type_code, "weight_kg": str(payload.weight_kg), "pricing_rule_version": rule.version, "is_final_charge": True}
+        pricing = quote_shipping_charge(db, payload.delivery_type_code, payload.destination_zone, payload.weight_kg, payload.priority)
+        rule = pricing["rule"]
+        return {"amount": str(pricing["total"]), "subtotal": str(pricing["subtotal"]), "discount": str(pricing["discount"]), "discounts": [{**offer, "amount": str(offer["amount"])} for offer in pricing["discounts"]], "service_upgrade_fee": str(pricing["service_upgrade_fee"]), "total": str(pricing["total"]), "tax": "0.00", "currency": rule.currency.strip(), "delivery_type_code": payload.delivery_type_code, "weight_kg": str(payload.weight_kg), "pricing_rule_version": rule.version, "is_final_charge": True}
     except ValueError as exc:
         raise HTTPException(409, str(exc))
 

@@ -118,7 +118,6 @@ def test_administrator_can_provision_a_warehouse_officer_login():
                     email=f"warehouse-{suffix}@example.test",
                     password="WarehouseTest123!",
                     phone="9000000000",
-                    employee_id=f"WH-{suffix}",
                     department_code="WAREHOUSE",
                     role_code="WAREHOUSE_OFFICER",
                 ),

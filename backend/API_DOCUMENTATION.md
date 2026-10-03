@@ -89,7 +89,7 @@ The `Idempotency-Key` header must remain the same for retries of one booking att
 
 New bookings create a pickup assignment. Completing pickup creates a warehouse assignment; recording its `RECEIVED` scan moves the shipment to `IN_TRANSIT` and creates a delivery assignment. The delivery agent starts delivery, requests an OTP (stored in PostgreSQL and shown in the customer's Notifications), and verifies it at handover. Cash bookings require explicit cash-collection confirmation before delivery; the payment and invoice are then updated together. Existing unassigned bookings are not silently backfilled.
 
-Staff accounts are not created through public registration. An authenticated administrator creates a separate login through `POST /api/admin/staff`, choosing an existing department and staff role. This allows warehouse, pickup and delivery workspaces to remain usable without allowing public users to grant themselves staff access.
+Staff accounts are not created through public registration. An authenticated administrator creates a separate login through `POST /api/admin/staff`, choosing an existing department and staff role. OptiGo generates the employee ID automatically and returns it with the new account details. This allows warehouse, pickup and delivery workspaces to remain usable without allowing public users to grant themselves staff access.
 
 ### Emergency administrator recovery
 
@@ -97,7 +97,7 @@ The static recovery form is `https://anishkagarg.github.io/Courier-Tracking/admi
 
 Razorpay test mode requires configured `rzp_test_` keys. Without them, online checkout is disabled; a local simulation cannot mark an invoice paid. Verification checks the Checkout signature and fetches the Razorpay order and payment to confirm the invoice receipt, amount, currency, and captured status before updating payment records.
 
-`POST /api/pricing/quote` accepts `weight_kg`, `delivery_type_code`, and `destination_zone` and returns the amount/currency from the same active rate calculation used by booking.
+`POST /api/pricing/quote` accepts `weight_kg`, optional parcel dimensions, `delivery_type_code`, `priority`, and `destination_zone`, then returns the exact booking charge. The booking form waits for all parcel dimensions before showing its live price. Express delivery adds ₹100 and priority handling adds ₹100; selecting both adds ₹200.
 
 ## Privacy boundary
 

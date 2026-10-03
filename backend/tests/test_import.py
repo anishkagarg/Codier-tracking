@@ -44,7 +44,6 @@ def test_staff_account_input_supports_warehouse_officer():
         email="warehouse.demo@example.test",
         password="WarehouseDemo123!",
         phone="9000000000",
-        employee_id="EMP-WH-DEMO",
         department_code="WAREHOUSE",
         role_code="WAREHOUSE_OFFICER",
     )

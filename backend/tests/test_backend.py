@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 
 from app.db import Base
 from app.security import hash_otp, hash_password, verify_otp, verify_password
-from app.services import STATUS_TRANSITIONS, apply_shipping_offers, create_booking, price_for_weight
+from app.services import STATUS_TRANSITIONS, apply_shipping_offers, create_booking, price_for_weight, quote_shipping_charge
 from app.models import Address, AdminRecoveryState, Customer, Department, Invoice, PasswordResetOTP, Staff, StaffRole, User
 from app.main import AddressIn, AdminRecoveryIn, AuthIn, PasswordResetIn, PasswordResetRequestIn, PriceQuoteIn, StaffPasswordResetIn, admin_reset_staff_password, confirm_password_reset, create_address, demo_online_enabled, list_addresses, location_cities, login, public_pricing_quote, razorpay_test_keys_ready, recover_admin_access, request_password_reset, validate_startup_configuration
 from starlette.requests import Request
@@ -476,7 +476,7 @@ def test_public_quote_is_the_exact_booking_charge():
     db.scalar.return_value = rule
 
     result = public_pricing_quote(
-        PriceQuoteIn(weight_kg="3", delivery_type_code="STANDARD", destination_zone="LOCAL"),
+        PriceQuoteIn(weight_kg="3", length_cm="10", width_cm="10", height_cm="10", delivery_type_code="STANDARD", destination_zone="LOCAL"),
         db,
     )
 
@@ -499,7 +499,7 @@ def test_public_quote_includes_both_eligible_offers_in_the_payable_total():
     db.scalar.return_value = rule
 
     result = public_pricing_quote(
-        PriceQuoteIn(weight_kg="1", delivery_type_code="STANDARD", destination_zone="LOCAL"),
+        PriceQuoteIn(weight_kg="1", length_cm="10", width_cm="10", height_cm="10", delivery_type_code="STANDARD", destination_zone="LOCAL"),
         db,
     )
 
@@ -508,6 +508,20 @@ def test_public_quote_includes_both_eligible_offers_in_the_payable_total():
     assert [offer["code"] for offer in result["discounts"]] == ["SHIP5", "SHIP50"]
     assert result["amount"] == result["total"] == "1090.00"
     assert result["is_final_charge"] is True
+
+
+def test_express_and_priority_each_add_a_fixed_hundred_rupees():
+    rule = SimpleNamespace(
+        rate_parameters={"base_charge": "250", "per_kg": "20"},
+        currency="INR",
+    )
+    db = Mock()
+    db.scalar.return_value = rule
+
+    result = quote_shipping_charge(db, "EXPRESS", "LOCAL", Decimal("3"), priority=True)
+
+    assert result["service_upgrade_fee"] == Decimal("200.00")
+    assert result["total"] == Decimal("510.00")
 
 
 def test_booking_persists_discounted_charge_and_invoice_total(monkeypatch):
