@@ -379,6 +379,7 @@ body:has(#auth-shell:not(.hidden)) #landing-shell{filter:blur(3px);pointer-event
 body:has(#app-shell.customer-workspace:not(.hidden)) #landing-shell{display:block;min-height:0}
 body:has(#app-shell.customer-workspace:not(.hidden)) #landing-shell main>:not(.landing-hero),
 body:has(#app-shell.customer-workspace:not(.hidden)) #landing-shell>.landing-footer{display:none}
+body:has(#app-shell:not(.hidden)) .landing-header-actions{display:none}
 #app-shell.customer-workspace{grid-template-rows:minmax(0,1fr)}
 #app-shell.customer-workspace>.customer-header{display:none}
 #app-shell.customer-workspace>.customer-services{grid-row:1;top:0;min-height:100%;padding-top:26px}
