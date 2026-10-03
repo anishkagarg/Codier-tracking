@@ -419,6 +419,7 @@ def complaint_view(db: Session, complaint: Complaint) -> dict:
         ShipmentAssignment.task_type_code == "DELIVERY",
     )) if complaint.shipment_id else None
     messages = db.scalars(select(ComplaintMessage).where(ComplaintMessage.complaint_id == complaint.complaint_id).order_by(ComplaintMessage.created_at, ComplaintMessage.message_id)).all()
+    created_at = complaint.created_at if complaint.created_at.tzinfo else complaint.created_at.replace(tzinfo=timezone.utc)
     return {
         "complaint_id": complaint.complaint_id,
         "customer_id": complaint.customer_id,
@@ -427,6 +428,7 @@ def complaint_view(db: Session, complaint: Complaint) -> dict:
         "description": complaint.description,
         "status_code": complaint.status_code,
         "created_at": complaint.created_at.isoformat(),
+        "due_at": (created_at + timedelta(hours=24)).isoformat(),
         "resolved_at": complaint.resolved_at.isoformat() if complaint.resolved_at else None,
         "handled_by_id": complaint.handled_by_id,
         "assigned_department": "DELIVERY" if delivery_assignment else "SUPPORT",
@@ -861,10 +863,20 @@ def create_complaint(payload: ComplaintIn, request: Request, db: Session = Depen
 
 @app.patch("/api/complaints/{complaint_id}")
 def update_complaint(complaint_id: str, payload: ComplaintUpdateIn, request: Request, db: Session = Depends(get_db)):
-    user, staff = required_staff(request, db, {"ADMINISTRATOR", "OPERATIONS_MANAGER", "SUPPORT_OFFICER"})
+    user = required_user(request, db)
+    staff = staff_for(db, user)
+    if not staff:
+        raise HTTPException(403, "Your role is not authorized to update complaints")
     complaint = db.get(Complaint, complaint_id)
     if not complaint:
         raise HTTPException(404, "Complaint not found")
+    if staff.role_code == "DELIVERY_AGENT":
+        if not complaint_accessible_to(db, complaint, user, None, staff):
+            raise HTTPException(404, "Complaint not found")
+        if payload.status_code == "CLOSED":
+            raise HTTPException(403, "A support officer closes a complaint after resolution is confirmed")
+    elif staff.role_code not in {"ADMINISTRATOR", "OPERATIONS_MANAGER", "SUPPORT_OFFICER"}:
+        raise HTTPException(403, "Your role is not authorized to update complaints")
     complaint.status_code = payload.status_code
     complaint.handled_by_id = staff.staff_id
     complaint.resolved_at = datetime.now(timezone.utc) if payload.status_code in {"RESOLVED", "CLOSED"} else None
