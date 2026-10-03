@@ -143,7 +143,9 @@ class StaffPasswordResetIn(BaseModel):
 
 class AdminRecoveryIn(BaseModel):
     recovery_key: str = Field(min_length=32, max_length=256)
+    name: str = Field(min_length=2, max_length=120)
     email: str = Field(min_length=5, max_length=254, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    phone: str = Field(min_length=7, max_length=30)
     password: str = Field(min_length=12, max_length=200)
 
 
@@ -585,7 +587,9 @@ def recover_admin_access(payload: AdminRecoveryIn, db: Session = Depends(get_db)
     now = datetime.now(timezone.utc)
     admin_staff.active = True
     admin_user.active = True
+    admin_user.name = payload.name.strip()
     admin_user.email = email
+    admin_user.phone = payload.phone.strip()
     admin_user.password_hash = hash_password(payload.password)
     admin_user.updated_at = now
     recovery_state.completed_at = now

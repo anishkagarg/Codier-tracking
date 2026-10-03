@@ -323,7 +323,9 @@ def test_admin_recovery_updates_only_existing_admin_once_and_rejects_wrong_key(m
     monkeypatch.setenv("ADMIN_RECOVERY_KEY", "a-long-one-time-recovery-key-for-tests")
     payload = {
         "recovery_key": "a-long-one-time-recovery-key-for-tests",
+        "name": "Recovered Administrator",
         "email": "new-admin@example.test",
+        "phone": "9000000000",
         "password": "NewAdministratorPassword123!",
     }
     with TestClient(test_app) as client:
@@ -334,7 +336,9 @@ def test_admin_recovery_updates_only_existing_admin_once_and_rejects_wrong_key(m
         assert recovered.json()["email"] == "new-admin@example.test"
         with Session(engine) as db:
             admin = db.get(User, "OBUUSR000001")
+            assert admin.name == "Recovered Administrator"
             assert admin.email == "new-admin@example.test"
+            assert admin.phone == "9000000000"
             assert admin.active is True
             assert verify_password(payload["password"], admin.password_hash)
             restored_staff = db.query(Staff).filter_by(user_id=admin.user_id, role_code="ADMINISTRATOR").one()
