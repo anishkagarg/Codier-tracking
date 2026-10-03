@@ -7,7 +7,7 @@
   <title>OptiGo | Courier Operations</title>
   <link rel="icon" href="assets/OptiGo_Header_Logo.png" type="image/png">
   <link rel="preload" as="image" href="assets/hero-parcel-delivery.png" fetchpriority="high">
-  <link rel="stylesheet" href="css/app.css?v=complaint-message-spacing-20261003">
+  <link rel="stylesheet" href="css/app.css?v=customer-booking-guidance-20261003-1">
 </head>
 <body>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
@@ -150,6 +150,28 @@
     </header>
     <aside class="customer-services" id="customer-services" aria-label="User services">
       <h2>User Services</h2>
+      <section class="customer-booking-guidance hidden" id="customer-booking-guidance" aria-label="Booking terms and regulations">
+        <button class="customer-guidance-back" type="button" data-customer-services-toggle>All services</button>
+        <p class="customer-guidance-label">Terms &amp; regulations</p>
+        <h2>Pack responsibly. Ship lawfully.</h2>
+        <p class="customer-guidance-intro">Check these rules before you confirm your booking.</p>
+        <article>
+          <h3>Restricted and unsafe items</h3>
+          <p>Do not send explosives, flammables, dangerous goods, narcotics or items prohibited by law. Protect sharp items. Some batteries may need surface transport.</p>
+          <a href="https://www.indiapost.gov.in/mailproducts/domesticservices/prohibiteditems" target="_blank" rel="noopener">India Post prohibited items ↗</a>
+        </article>
+        <article>
+          <h3>Customs requirements</h3>
+          <p>Courier imports and exports are subject to Customs rules. Restricted goods may require authorisation or may not be exportable.</p>
+          <a href="https://courier.cbic.gov.in/regulation.jsp" target="_blank" rel="noopener">CBIC courier regulations ↗</a>
+        </article>
+        <article>
+          <h3>Accurate contents and value</h3>
+          <p>Describe the parcel contents and value truthfully. For exports, check the current DGFT policy and ITC(HS) conditions.</p>
+          <a href="https://content.dgft.gov.in/Website/General_Note_on_Export_Policy_2025.pdf" target="_blank" rel="noopener">DGFT export policy notes ↗</a>
+        </article>
+        <p class="customer-guidance-source">Sources: Department of Posts, CBIC and DGFT. Rules can change. OptiGo does not accept prohibited goods.</p>
+      </section>
       <nav aria-label="User services navigation">
         <button class="customer-service-link" data-view="tracking">Track My Order</button>
         <button class="customer-service-link" data-view="notifications">Notifications</button>
@@ -157,7 +179,6 @@
         <button class="customer-service-link" data-view="booking">Book a shipment</button>
         <button class="customer-service-link" data-view="addressbook">AddressBook</button>
         <button class="customer-service-link" data-view="shipments">Booking history</button>
-        <button class="customer-service-link" data-view="terms">Terms &amp; regulations</button>
       </nav>
       <div class="customer-service-account"><span id="customer-rail-name">Customer</span><button class="button ghost wide" type="button" data-customer-logout>Sign out</button><button class="button danger wide" type="button" id="customer-delete-account">Delete account</button></div>
     </aside>
@@ -225,6 +246,6 @@
   <script src="config.js?v=api-connection-20261001-2"></script>
   <script src="js/india-locations.js?v=f2ade32"></script>
   <script src="js/booking-fields.js?v=customer-address-prefill-20261001-1"></script>
-  <script src="js/app.js?v=customer-terms-20261003-1"></script>
+  <script src="js/app.js?v=customer-booking-guidance-20261003-1"></script>
 </body>
 </html>

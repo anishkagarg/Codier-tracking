@@ -94,6 +94,12 @@ function showShell(restoreView=false){
     });
   }else navigate(state.view);
 }
+function setCustomerBookingGuidance(show){
+  const rail=$("#customer-services"),guidance=$("#customer-booking-guidance");
+  if(!rail||!guidance||state.account?.role!=="CUSTOMER")return;
+  rail.classList.toggle("show-booking-guidance",show);
+  guidance.classList.toggle("hidden",!show);
+}
 function setTitle(title){$("#page-title").textContent=title;document.querySelectorAll(".nav-item,.customer-service-link").forEach(n=>{const active=n.dataset.view===state.view;n.classList.toggle("active",active);if(active)n.setAttribute("aria-current","page");else n.removeAttribute("aria-current")})}
 function shipmentLink(shipmentId,trackingId,label){const text=trackingId||label||"View shipment";return `<button type="button" class="tracking-link link-button" data-shipment-detail="${esc(shipmentId)}" aria-label="View shipment journey${trackingId?` for ${esc(trackingId)}`:""}">${esc(text)}</button>`}
 function wireShipmentLinks(container,items){if(!container)return;const rows=container.querySelectorAll("tbody tr");items.forEach((item,index)=>{const cell=rows[index]?.cells[0];if(!cell||!item.shipment_id)return;cell.innerHTML=shipmentLink(item.shipment_id,item.tracking_id,cell.textContent.trim())})}
@@ -464,7 +470,7 @@ async function payments(){
   $("#view").innerHTML=`<div class="section-heading"><div><h2>Online payments</h2><p>Review online payment requests for your shipments.</p></div></div>${!options.demo_online_available?`<div class="panel empty-state"><strong>Online payment is unavailable.</strong><span>Cash bookings are still available.</span></div>`:pending.length?`<section class="panel"><form id="payment-form" class="form-grid"><div class="field" style="grid-column:1/-1"><label>Shipment<select name="shipment_id" required>${pending.map(s=>`<option value="${esc(s.shipment_id)}">${esc(s.tracking_id)} · ${money(s.charge,s.currency)}</option>`).join("")}</select></label></div><div class="form-actions" style="grid-column:1/-1"><button class="button primary">Continue to online payment <span>→</span></button></div></form><div id="payment-result"></div></section>`:`<div class="panel empty-state"><strong>No online payment is due.</strong></div>`}`;
   if($("#payment-form"))$("#payment-form").onsubmit=(e)=>{e.preventDefault();completeDemoPayment(new FormData(e.currentTarget).get("shipment_id"),$("#payment-result"))};
 }
-async function navigate(view){if(!state.account||!(ROLE_VIEWS[state.account.role]||[]).includes(view))return;state.view=view;document.querySelector("#sidebar").classList.remove("open");$("#view").innerHTML='<div class="panel empty-state">Loading workspace…</div>';try{if(view==="dashboard")await dashboard();else if(view==="shipments")await shipments();else if(view==="booking")booking();else if(view==="tracking")tracking();else if(view==="addressbook")await addressbook();else if(view==="notifications")await notifications();else if(view==="complaints")await complaints();else if(view==="terms")terms();else if(view==="tasks")await tasks();else if(view==="work-history")await workHistory();else if(view==="operations")await operations();else if(view==="route-planner")await routePlanner();else if(view==="payments")await payments();else if(view==="reports")await reports();else if(view==="warehouse")await warehouse();else if(view==="finance")await finance();else if(view==="staff")await staffAdmin()}catch(err){toast(err.message,true);$("#view").innerHTML=`<div class="panel empty-state"><strong>Unable to load this view</strong><span>${esc(err.message)}</span></div>`}}
+async function navigate(view){if(!state.account||!(ROLE_VIEWS[state.account.role]||[]).includes(view))return;state.view=view;setCustomerBookingGuidance(state.account.role==="CUSTOMER"&&view==="booking");document.querySelector("#sidebar").classList.remove("open");$("#view").innerHTML='<div class="panel empty-state">Loading workspace…</div>';try{if(view==="dashboard")await dashboard();else if(view==="shipments")await shipments();else if(view==="booking")booking();else if(view==="tracking")tracking();else if(view==="addressbook")await addressbook();else if(view==="notifications")await notifications();else if(view==="complaints")await complaints();else if(view==="terms")terms();else if(view==="tasks")await tasks();else if(view==="work-history")await workHistory();else if(view==="operations")await operations();else if(view==="route-planner")await routePlanner();else if(view==="payments")await payments();else if(view==="reports")await reports();else if(view==="warehouse")await warehouse();else if(view==="finance")await finance();else if(view==="staff")await staffAdmin()}catch(err){toast(err.message,true);$("#view").innerHTML=`<div class="panel empty-state"><strong>Unable to load this view</strong><span>${esc(err.message)}</span></div>`}}
 function setTaskFeedback(assignmentId,message,isError=false){
   const feedback=[...document.querySelectorAll("[data-task-feedback]")].find(node=>node.dataset.taskFeedback===assignmentId);
   if(feedback)feedback.innerHTML=`<span class="${isError?"is-error":"is-success"}">${esc(message)}</span>`;
@@ -550,6 +556,7 @@ async function handleTaskAction(task){
   }
 }
 document.addEventListener("click",(e)=>{
+  if(e.target.closest("[data-customer-services-toggle]")){e.preventDefault();setCustomerBookingGuidance(false);return}
   const staffReset=e.target.closest("[data-staff-password-reset]");
   if(staffReset){const form=$("#staff-password-form");form.dataset.staffId=staffReset.dataset.staffPasswordReset;$("#staff-password-account").textContent=`${staffReset.dataset.staffName} · ${staffReset.dataset.staffRole} · ${staffReset.dataset.staffEmail}`;$("#staff-password-dialog").showModal();$("#staff-new-password").focus();return}
   if(e.target.closest("[data-customer-logout]")){e.preventDefault();$("#logout-button").click();return}
@@ -658,7 +665,12 @@ function closeLogoutModal(){$("#logout-modal").classList.add("hidden")}
 $("#logout-button").onclick=()=>{$("#logout-modal").classList.remove("hidden");$("#cancel-logout").focus()};$("#cancel-logout").onclick=closeLogoutModal;$("#logout-modal").onclick=(e)=>{if(e.target.id==="logout-modal")closeLogoutModal()};$("#confirm-logout").onclick=async()=>{const button=$("#confirm-logout");button.disabled=true;try{await api("/api/auth/logout",{method:"POST"});state.account=null;forgetAccount();closeLogoutModal();$("#app-shell").classList.add("hidden");$("#auth-shell").classList.remove("hidden");renderAuth("login")}catch(err){closeLogoutModal();toast(err.message,true)}finally{button.disabled=false}};function closeDeleteModal(){$("#delete-account-modal").classList.add("hidden")}$("#delete-account-button").onclick=()=>{$("#delete-account-modal").classList.remove("hidden");$("#cancel-delete-account").focus()};$("#cancel-delete-account").onclick=closeDeleteModal;$("#delete-account-modal").onclick=(e)=>{if(e.target.id==="delete-account-modal")closeDeleteModal()};$("#confirm-delete-account").onclick=async()=>{const button=$("#confirm-delete-account");button.disabled=true;try{await api("/api/auth/account",{method:"DELETE"});state.account=null;forgetAccount();closeDeleteModal();$("#app-shell").classList.add("hidden");$("#auth-shell").classList.remove("hidden");renderAuth("login");showAuthMessage("Account deleted successfully.",true)}catch(err){closeDeleteModal();toast(err.message,true)}finally{button.disabled=false}};$("#menu-button").onclick=()=>{$("#sidebar").classList.toggle("open");$("#sidebar-overlay").classList.toggle("show")};$("#sidebar-overlay").onclick=()=>{$("#sidebar").classList.remove("open");$("#sidebar-overlay").classList.remove("show")};
 renderAuth("login");
 const rememberedAccount=cachedAccount();
-if(rememberedAccount){state.account=rememberedAccount;showShell(true);}
+const localCustomerPreview=["localhost","127.0.0.1"].includes(window.location.hostname)&&new URLSearchParams(window.location.search).get("preview")==="customer";
+if(localCustomerPreview){
+  state.account={name:"Preview customer",email:"preview@optigo.local",role:"CUSTOMER"};
+  sessionStorage.removeItem("optigo-view");
+  showShell();
+}else if(rememberedAccount){state.account=rememberedAccount;showShell(true);}
 startupReady=api("/api/auth/me").then(session=>{
   if(session.authenticated&&session.account){
     const identityChanged=(state.account?.staff_id||state.account?.email)!==(session.account.staff_id||session.account.email);

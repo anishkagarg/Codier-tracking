@@ -188,6 +188,19 @@ body:has(#app-shell:not(.hidden)) .modal-backdrop{background:rgba(12,30,54,.48)}
 .customer-service-link.active{background:#FFF0CE;color:#0C1E36;box-shadow:inset 3px 0 #DD9529;font-weight:800}
 .customer-service-account{display:grid;gap:9px;margin-top:auto;padding:20px 8px 0;border-top:1px solid #EBDDC5;color:#665d4d;font-size:12px}
 .customer-service-account>.button{min-height:37px;font-size:11px}
+.customer-booking-guidance{padding:2px 8px 18px}
+.customer-booking-guidance .customer-guidance-back{width:100%;min-height:35px;margin:0 0 20px;border:1px solid #EBDDC5;border-radius:7px;background:#fff;color:#0C1E36;font-size:12px;font-weight:750;text-align:left;padding:0 12px}
+.customer-booking-guidance .customer-guidance-back:hover{background:#FFF7E7}
+.customer-booking-guidance .customer-guidance-label{margin:0 0 8px;color:#B9791F;font-size:11px;font-weight:800;letter-spacing:.09em;text-transform:uppercase}
+.customer-booking-guidance h2{margin:0 0 8px;padding:0;color:#0C1E36;font-size:20px;line-height:1.12;letter-spacing:-.025em}
+.customer-guidance-intro{margin:0 0 18px;color:#665d4d;font-size:12px;line-height:1.5}
+.customer-booking-guidance article{padding:14px 0;border-top:1px solid #EBDDC5}
+.customer-booking-guidance article h3{margin:0 0 6px;color:#0C1E36;font-size:13px;line-height:1.25}
+.customer-booking-guidance article p{margin:0;color:#665d4d;font-size:11px;line-height:1.5}
+.customer-booking-guidance article a{display:inline-block;margin-top:7px;color:#8D5E13;font-size:11px;font-weight:750;text-decoration:underline;text-underline-offset:3px}
+.customer-guidance-source{margin:14px 0 0;color:#665d4d;font-size:10px;line-height:1.45}
+#app-shell.customer-workspace>.customer-services.show-booking-guidance{overflow-y:auto;overscroll-behavior-y:contain}
+#app-shell.customer-workspace>.customer-services.show-booking-guidance>h2,#app-shell.customer-workspace>.customer-services.show-booking-guidance>nav,#app-shell.customer-workspace>.customer-services.show-booking-guidance>.customer-service-account{display:none}
 #app-shell.customer-workspace>.sidebar,#app-shell.customer-workspace>.page-wrap>.topbar,#app-shell.customer-workspace>.sidebar-overlay{display:none!important}
 
 /* Keep long staff navigation usable without tinting the whole sidebar. */
@@ -240,6 +253,8 @@ body:has(#app-shell:not(.hidden)) .modal-backdrop{background:rgba(12,30,54,.48)}
   .customer-service-link{flex:0 0 auto;width:auto;min-height:42px;padding:0 12px;border:1px solid #EBDDC5;border-radius:7px;white-space:nowrap;font-size:12px}
   .customer-service-link.active{box-shadow:inset 0 -3px #DD9529}
   .customer-service-account{display:none}
+  #app-shell.customer-workspace>.customer-services.show-booking-guidance>h2,#app-shell.customer-workspace>.customer-services.show-booking-guidance>nav{display:initial}
+  #app-shell.customer-workspace>.customer-services.show-booking-guidance>.customer-booking-guidance{display:none!important}
   #app-shell.customer-workspace>.page-wrap{grid-column:1;grid-row:3;min-height:calc(100vh - 66px)}
   #app-shell.customer-workspace #view.content{min-height:calc(100vh - 250px);padding:25px 16px 34px}
   #app-shell.customer-workspace .customer-footer{padding:20px 17px;gap:11px 17px}
@@ -357,6 +372,22 @@ body:has(#auth-shell:not(.hidden)) #landing-shell{filter:blur(3px);pointer-event
 .hero-offer-list h3{margin:0;color:#0C1E36;font-size:14px;line-height:1.25}
 .hero-offer-list p{margin:0;color:#514326;font-size:11px;line-height:1.45}
 @media(max-width:800px){.landing-hero{grid-template-columns:1fr;gap:28px;background-position:center}.hero-promotion{display:block}.hero-offers{justify-self:start;width:100%;max-width:560px;margin:0;transform:none}.hero-offers h2{max-width:12ch}.hero-offer-list article{min-height:0}}
+
+/* Customers keep the public landing identity after sign-in: its header, navigation
+   and hero remain above the same customer tools, rather than switching to a second
+   dashboard shell. */
+body:has(#app-shell.customer-workspace:not(.hidden)) #landing-shell{display:block;min-height:0}
+body:has(#app-shell.customer-workspace:not(.hidden)) #landing-shell main>:not(.landing-hero),
+body:has(#app-shell.customer-workspace:not(.hidden)) #landing-shell>.landing-footer{display:none}
+#app-shell.customer-workspace{grid-template-rows:minmax(0,1fr)}
+#app-shell.customer-workspace>.customer-header{display:none}
+#app-shell.customer-workspace>.customer-services{grid-row:1;top:0;min-height:100%;padding-top:26px}
+#app-shell.customer-workspace>.page-wrap{grid-row:1;min-height:100vh}
+@media(max-width:760px){
+  #app-shell.customer-workspace{grid-template-rows:auto minmax(0,1fr)}
+  #app-shell.customer-workspace>.customer-services{grid-column:1;grid-row:1;min-height:0;padding-top:16px}
+  #app-shell.customer-workspace>.page-wrap{grid-column:1;grid-row:2;min-height:calc(100vh - 120px)}
+}
 .quick-links{grid-template-columns:minmax(0,1.15fr) minmax(260px,.85fr);grid-template-areas:"book guidelines" "tracking tracking";gap:12px;width:min(1140px,calc(100% - 40px));margin:0 auto;padding:24px 0 0;border:0;background:transparent;box-shadow:none}
 .quick-links>*{min-height:92px;justify-content:center;padding:20px 24px;border:1px solid #EBDDC5;border-radius:10px}
 .quick-links>*:last-child{border:1px solid #EBDDC5}
