@@ -433,7 +433,7 @@ complaints=async function(){
     form.className="complaint-message-form";
     form.dataset.complaintMessage=complaint.complaint_id;
     const deliveryAgent=state.account.role==="DELIVERY_AGENT",customer=state.account.role==="CUSTOMER";
-    form.innerHTML=`${deliveryAgent?`<input type="hidden" name="audience" value="INTERNAL">`:customer?`<input type="hidden" name="audience" value="CUSTOMER">`:`<label class="complaint-audience">Send to<select name="audience"><option value="CUSTOMER">Customer</option><option value="INTERNAL">Delivery team — internal note</option></select></label>`}<textarea name="message" rows="2" minlength="2" maxlength="4000" required placeholder="${deliveryAgent?"Report the action taken to Support…":"Write a response…"}"></textarea><button class="button secondary small">${deliveryAgent?"Send update to Support":"Send reply"}</button>`;
+    form.innerHTML=`${deliveryAgent?`<input type="hidden" name="audience" value="INTERNAL">`:customer?`<input type="hidden" name="audience" value="CUSTOMER">`:`<label class="complaint-audience">Message recipient<select name="audience" aria-label="Message recipient"><option value="CUSTOMER">Customer — visible in their complaint</option><option value="INTERNAL">Assigned delivery agent — internal note</option></select><small>The internal note is visible only to Support and the assigned delivery agent.</small></label>`}<textarea name="message" rows="2" minlength="2" maxlength="4000" required placeholder="${deliveryAgent?"Report the action taken to Support…":"Write a response…"}"></textarea><button class="button secondary small">${deliveryAgent?"Send update to Support":"Send message"}</button>`;
     card.append(thread,form);
   });
 };
