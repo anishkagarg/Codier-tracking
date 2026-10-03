@@ -61,6 +61,13 @@
   <script src="config.js"></script>
   <script>
     const form=document.querySelector("#recovery-form"),result=document.querySelector("#result"),button=document.querySelector("#submit");
+    const errorMessage=body=>{
+      if(typeof body?.detail==="string")return body.detail;
+      if(Array.isArray(body?.detail)){
+        return body.detail.map(item=>item?.msg||"Check the recovery form and try again.").join(" ");
+      }
+      return "Recovery could not be completed. Check the form and try again.";
+    };
     form.addEventListener("submit",async event=>{
       event.preventDefault();result.className="";result.textContent="";
       if(location.protocol!=="https:"){result.className="error";result.textContent="For your safety, open this page over HTTPS.";return}
@@ -68,9 +75,9 @@
       if(password!==data.get("confirm_password")){result.className="error";result.textContent="The passwords do not match.";return}
       button.disabled=true;button.textContent="Recovering…";
       try{
-        const response=await fetch(`${window.OPTIGO_API_BASE}/api/admin/recovery`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({recovery_key:data.get("recovery_key"),email:data.get("email"),password})});
+        const response=await fetch(`${window.OPTIGO_API_BASE}/api/admin/recovery`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({recovery_key:data.get("recovery_key"),name:data.get("name"),email:data.get("email"),phone:data.get("phone"),password})});
         const body=await response.json().catch(()=>({}));
-        if(!response.ok)throw new Error(body.detail||"Recovery could not be completed.");
+        if(!response.ok)throw new Error(errorMessage(body));
         result.className="success";result.textContent=`Administrator access recovered for ${body.email}. OptiGo user ID: ${body.user_id}. Sign in from the website with the new email and password.`;
         form.reset();
       }catch(error){result.className="error";result.textContent=error.message||"Recovery could not be completed. Check your Render deployment and try again."}
