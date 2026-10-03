@@ -286,7 +286,7 @@ def test_password_reset_rejects_invalid_code_then_accepts_valid_code():
     db.delete.assert_called_once_with(recovery)
 
 
-def test_admin_recovery_updates_only_existing_admin_once_and_rejects_wrong_key(monkeypatch):
+def test_admin_recovery_restores_existing_admin_and_allows_credential_correction(monkeypatch):
     from app import main
 
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
@@ -343,7 +343,9 @@ def test_admin_recovery_updates_only_existing_admin_once_and_rejects_wrong_key(m
             assert verify_password(payload["password"], admin.password_hash)
             restored_staff = db.query(Staff).filter_by(user_id=admin.user_id, role_code="ADMINISTRATOR").one()
             assert restored_staff.active is True
-        assert client.post("/api/admin/recovery", json=payload).status_code == 410
+        corrected = client.post("/api/admin/recovery", json={**payload, "email": "corrected-admin@example.test", "password": "CorrectedAdministratorPassword123!"})
+        assert corrected.status_code == 200, corrected.text
+        assert corrected.json()["email"] == "corrected-admin@example.test"
     engine.dispose()
 
 

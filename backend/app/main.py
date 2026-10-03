@@ -547,11 +547,12 @@ def request_password_reset(payload: PasswordResetRequestIn, db: Session = Depend
 
 @app.post("/api/admin/recovery")
 def recover_admin_access(payload: AdminRecoveryIn, db: Session = Depends(get_db)):
-    """One-time, secret-gated recovery of the existing administrator login.
+    """Secret-gated recovery of the existing administrator login.
 
     The Render-only ADMIN_RECOVERY_KEY must be a high-entropy random value.
     The operation changes only the existing admin account's email/password,
-    then permanently consumes the database latch.
+    The recovery key may be used again to correct credentials until it is
+    removed from the Render environment.
     """
     expected_key = os.getenv("ADMIN_RECOVERY_KEY", "")
     if len(expected_key) < 32 or not hmac.compare_digest(payload.recovery_key, expected_key):
@@ -564,9 +565,6 @@ def recover_admin_access(payload: AdminRecoveryIn, db: Session = Depends(get_db)
     )
     if not recovery_state:
         raise HTTPException(503, "Admin recovery is not initialized. Contact OptiGo support.")
-    if recovery_state.completed_at:
-        raise HTTPException(410, "The one-time administrator recovery has already been used")
-
     administrators = db.execute(
         select(Staff, User)
         .join(User, Staff.user_id == User.user_id)

@@ -51,11 +51,11 @@
         <label for="confirm-password">Confirm new password</label>
         <input id="confirm-password" name="confirm_password" type="password" minlength="12" maxlength="200" autocomplete="new-password" required>
 
-        <label class="confirm"><input name="acknowledge" type="checkbox" required><span>I understand this replaces the existing administrator email and password, and the recovery can only be used once.</span></label>
+        <label class="confirm"><input name="acknowledge" type="checkbox" required><span>I understand this replaces the existing administrator profile and sign-in credentials.</span></label>
         <button id="submit" type="submit">Recover administrator access</button>
         <p id="result" role="status" aria-live="polite"></p>
       </form>
-      <p class="foot">The recovery key is checked by the OptiGo API, is never saved by this page, and the backend permanently disables this operation after one successful recovery.</p>
+      <p class="foot">The recovery key is checked by the OptiGo API and is never saved by this page. Remove the key from Render once administrator access is restored.</p>
     </section>
   </main>
   <script src="config.js"></script>
