@@ -97,6 +97,7 @@ async def lifespan(_app: FastAPI):
         connection.execute(text("ALTER TABLE complaints ALTER COLUMN shipment_id DROP NOT NULL"))
         connection.execute(text("ALTER TABLE complaints ALTER COLUMN handled_by_id DROP NOT NULL"))
         connection.execute(text("ALTER TABLE complaints ALTER COLUMN resolved_at DROP NOT NULL"))
+        connection.execute(text("ALTER TABLE complaint_messages ADD COLUMN IF NOT EXISTS audience VARCHAR(20) NOT NULL DEFAULT 'CUSTOMER'"))
     yield
 
 
@@ -304,6 +305,7 @@ class ComplaintUpdateIn(BaseModel):
 
 class ComplaintMessageIn(BaseModel):
     message: str = Field(min_length=2, max_length=4000)
+    audience: Literal["CUSTOMER", "INTERNAL"] = "CUSTOMER"
 
 
 class FinanceTransactionIn(BaseModel):
@@ -413,12 +415,15 @@ def notification_view(notification: Notification) -> dict:
     }
 
 
-def complaint_view(db: Session, complaint: Complaint) -> dict:
+def complaint_view(db: Session, complaint: Complaint, include_internal: bool = False) -> dict:
     delivery_assignment = db.scalar(select(ShipmentAssignment).where(
         ShipmentAssignment.shipment_id == complaint.shipment_id,
         ShipmentAssignment.task_type_code == "DELIVERY",
     )) if complaint.shipment_id else None
-    messages = db.scalars(select(ComplaintMessage).where(ComplaintMessage.complaint_id == complaint.complaint_id).order_by(ComplaintMessage.created_at, ComplaintMessage.message_id)).all()
+    message_stmt = select(ComplaintMessage).where(ComplaintMessage.complaint_id == complaint.complaint_id)
+    if not include_internal:
+        message_stmt = message_stmt.where(ComplaintMessage.audience == "CUSTOMER")
+    messages = db.scalars(message_stmt.order_by(ComplaintMessage.created_at, ComplaintMessage.message_id)).all()
     created_at = complaint.created_at if complaint.created_at.tzinfo else complaint.created_at.replace(tzinfo=timezone.utc)
     return {
         "complaint_id": complaint.complaint_id,
@@ -431,9 +436,9 @@ def complaint_view(db: Session, complaint: Complaint) -> dict:
         "due_at": (created_at + timedelta(hours=24)).isoformat(),
         "resolved_at": complaint.resolved_at.isoformat() if complaint.resolved_at else None,
         "handled_by_id": complaint.handled_by_id,
-        "assigned_department": "DELIVERY" if delivery_assignment else "SUPPORT",
-        "assigned_staff_id": delivery_assignment.staff_id if delivery_assignment else None,
-        "messages": [{"message_id": row.message_id, "sender_role": row.sender_role, "message": row.message, "created_at": row.created_at.isoformat()} for row in messages],
+        "case_owner_department": "SUPPORT",
+        "action_department": "DELIVERY" if delivery_assignment else None,
+        "messages": [{"message_id": row.message_id, "sender_role": row.sender_role, "audience": row.audience, "message": row.message, "created_at": row.created_at.isoformat()} for row in messages],
     }
 
 
@@ -832,7 +837,7 @@ def complaints(request: Request, db: Session = Depends(get_db)):
         stmt = stmt.where(Complaint.complaint_id.in_(complaint_ids))
     elif staff.role_code not in {"ADMINISTRATOR", "OPERATIONS_MANAGER", "SUPPORT_OFFICER"}:
         raise HTTPException(403, "Your role is not authorized to view complaints")
-    return {"complaints": [complaint_view(db, row) for row in db.scalars(stmt).all()]}
+    return {"complaints": [complaint_view(db, row, include_internal=bool(staff)) for row in db.scalars(stmt).all()]}
 
 
 @app.post("/api/complaints", status_code=201)
@@ -873,15 +878,15 @@ def update_complaint(complaint_id: str, payload: ComplaintUpdateIn, request: Req
     if staff.role_code == "DELIVERY_AGENT":
         if not complaint_accessible_to(db, complaint, user, None, staff):
             raise HTTPException(404, "Complaint not found")
-        if payload.status_code == "CLOSED":
-            raise HTTPException(403, "A support officer closes a complaint after resolution is confirmed")
+        if payload.status_code != "IN_PROGRESS":
+            raise HTTPException(403, "Mark the case in progress and report the completed action to Support. Support confirms resolution with the customer.")
     elif staff.role_code not in {"ADMINISTRATOR", "OPERATIONS_MANAGER", "SUPPORT_OFFICER"}:
         raise HTTPException(403, "Your role is not authorized to update complaints")
     complaint.status_code = payload.status_code
     complaint.handled_by_id = staff.staff_id
     complaint.resolved_at = datetime.now(timezone.utc) if payload.status_code in {"RESOLVED", "CLOSED"} else None
     db.commit()
-    return complaint_view(db, complaint)
+    return complaint_view(db, complaint, include_internal=True)
 
 
 @app.post("/api/complaints/{complaint_id}/messages", status_code=201)
@@ -893,18 +898,23 @@ def create_complaint_message(complaint_id: str, payload: ComplaintMessageIn, req
     if not complaint or not complaint_accessible_to(db, complaint, user, customer, staff):
         raise HTTPException(404, "Complaint not found")
     sender_role = staff.role_code if staff else "CUSTOMER"
+    if not staff and payload.audience != "CUSTOMER":
+        raise HTTPException(403, "Customers can only send messages to Support")
+    if staff and staff.role_code == "DELIVERY_AGENT" and payload.audience != "INTERNAL":
+        raise HTTPException(403, "Delivery updates are sent to Support as internal case notes")
     db.add(ComplaintMessage(
         message_id=new_id(db, ComplaintMessage, "message_id", "OBUCMT"),
         complaint_id=complaint.complaint_id,
         sender_user_id=user.user_id,
         sender_role=sender_role,
+        audience=payload.audience,
         message=payload.message.strip(),
         created_at=datetime.now(timezone.utc),
     ))
     if complaint.status_code == "OPEN":
         complaint.status_code = "IN_PROGRESS"
     db.commit()
-    return complaint_view(db, complaint)
+    return complaint_view(db, complaint, include_internal=bool(staff))
 
 
 @app.get("/api/dashboard")

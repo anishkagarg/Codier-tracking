@@ -480,5 +480,8 @@ class ComplaintMessage(Base):
     complaint_id = Column(String(40), ForeignKey("complaints.complaint_id", ondelete="CASCADE"), nullable=False)
     sender_user_id = Column(String(12), ForeignKey("users.user_id"), nullable=False)
     sender_role = Column(String(30), nullable=False)
+    # CUSTOMER messages are visible to the customer; INTERNAL messages are
+    # reserved for the Support and Delivery teams working the case.
+    audience = Column(String(20), nullable=False, default="CUSTOMER")
     message = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False)
