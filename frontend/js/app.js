@@ -17,6 +17,9 @@ const ROLE_VIEWS = {
 };
 const $ = (selector) => document.querySelector(selector);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+function rememberAccount(account){sessionStorage.setItem("optigo-account",JSON.stringify(account));}
+function forgetAccount(){sessionStorage.removeItem("optigo-account");}
+function cachedAccount(){try{const account=JSON.parse(sessionStorage.getItem("optigo-account")||"null");return account&&account.role&&account.name?account:null;}catch{return null;}}
 const money = (value, currency="INR") => `${currency} ${Number(value || 0).toLocaleString("en-IN", {minimumFractionDigits:2, maximumFractionDigits:2})}`;
 const pricingSavingsMarkup = (quote) => Number(quote?.discount || 0) > 0
   ? `<small class="price-savings">You save ${money(quote.discount, quote.currency)}${quote.discounts?.length ? ` with ${quote.discounts.map((offer) => esc(offer.label)).join(" + ")}` : ""}</small><small class="price-subtotal">Before offers: ${money(quote.subtotal, quote.currency)}</small>`
@@ -637,10 +640,23 @@ document.addEventListener("submit",async event=>{
   finally{button.disabled=false}
 });
 function closeLogoutModal(){$("#logout-modal").classList.add("hidden")}
-$("#logout-button").onclick=()=>{$("#logout-modal").classList.remove("hidden");$("#cancel-logout").focus()};$("#cancel-logout").onclick=closeLogoutModal;$("#logout-modal").onclick=(e)=>{if(e.target.id==="logout-modal")closeLogoutModal()};$("#confirm-logout").onclick=async()=>{const button=$("#confirm-logout");button.disabled=true;try{await api("/api/auth/logout",{method:"POST"});state.account=null;closeLogoutModal();$("#app-shell").classList.add("hidden");$("#auth-shell").classList.remove("hidden");renderAuth("login")}catch(err){closeLogoutModal();toast(err.message,true)}finally{button.disabled=false}};function closeDeleteModal(){$("#delete-account-modal").classList.add("hidden")}$("#delete-account-button").onclick=()=>{$("#delete-account-modal").classList.remove("hidden");$("#cancel-delete-account").focus()};$("#cancel-delete-account").onclick=closeDeleteModal;$("#delete-account-modal").onclick=(e)=>{if(e.target.id==="delete-account-modal")closeDeleteModal()};$("#confirm-delete-account").onclick=async()=>{const button=$("#confirm-delete-account");button.disabled=true;try{await api("/api/auth/account",{method:"DELETE"});state.account=null;closeDeleteModal();$("#app-shell").classList.add("hidden");$("#auth-shell").classList.remove("hidden");renderAuth("login");showAuthMessage("Account deleted successfully.",true)}catch(err){closeDeleteModal();toast(err.message,true)}finally{button.disabled=false}};$("#menu-button").onclick=()=>{$("#sidebar").classList.toggle("open");$("#sidebar-overlay").classList.toggle("show")};$("#sidebar-overlay").onclick=()=>{$("#sidebar").classList.remove("open");$("#sidebar-overlay").classList.remove("show")};
+$("#logout-button").onclick=()=>{$("#logout-modal").classList.remove("hidden");$("#cancel-logout").focus()};$("#cancel-logout").onclick=closeLogoutModal;$("#logout-modal").onclick=(e)=>{if(e.target.id==="logout-modal")closeLogoutModal()};$("#confirm-logout").onclick=async()=>{const button=$("#confirm-logout");button.disabled=true;try{await api("/api/auth/logout",{method:"POST"});state.account=null;forgetAccount();closeLogoutModal();$("#app-shell").classList.add("hidden");$("#auth-shell").classList.remove("hidden");renderAuth("login")}catch(err){closeLogoutModal();toast(err.message,true)}finally{button.disabled=false}};function closeDeleteModal(){$("#delete-account-modal").classList.add("hidden")}$("#delete-account-button").onclick=()=>{$("#delete-account-modal").classList.remove("hidden");$("#cancel-delete-account").focus()};$("#cancel-delete-account").onclick=closeDeleteModal;$("#delete-account-modal").onclick=(e)=>{if(e.target.id==="delete-account-modal")closeDeleteModal()};$("#confirm-delete-account").onclick=async()=>{const button=$("#confirm-delete-account");button.disabled=true;try{await api("/api/auth/account",{method:"DELETE"});state.account=null;forgetAccount();closeDeleteModal();$("#app-shell").classList.add("hidden");$("#auth-shell").classList.remove("hidden");renderAuth("login");showAuthMessage("Account deleted successfully.",true)}catch(err){closeDeleteModal();toast(err.message,true)}finally{button.disabled=false}};$("#menu-button").onclick=()=>{$("#sidebar").classList.toggle("open");$("#sidebar-overlay").classList.toggle("show")};$("#sidebar-overlay").onclick=()=>{$("#sidebar").classList.remove("open");$("#sidebar-overlay").classList.remove("show")};
 renderAuth("login");
+const rememberedAccount=cachedAccount();
+if(rememberedAccount){state.account=rememberedAccount;showShell(true);}
 startupReady=api("/api/auth/me").then(session=>{
-  if(session.authenticated&&session.account){state.account=session.account;showShell(true);}
+  if(session.authenticated&&session.account){
+    const identityChanged=(state.account?.staff_id||state.account?.email)!==(session.account.staff_id||session.account.email);
+    state.account=session.account;
+    rememberAccount(session.account);
+    if(!rememberedAccount||identityChanged)showShell(true);
+  }else if(rememberedAccount){
+    state.account=null;
+    forgetAccount();
+    $("#app-shell").classList.add("hidden");
+    $("#auth-shell").classList.remove("hidden");
+    renderAuth("login");
+  }
   return session;
 }).catch(()=>null);
 document.addEventListener("click",event=>{
